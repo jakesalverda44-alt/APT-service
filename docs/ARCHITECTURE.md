@@ -168,7 +168,32 @@ Nine screenshots of APT's production ESC refine the model:
 - Techs seen on the board: Cory, Austin, Ron, Jay (+ more) — small enough team
   for simple per-tech columns.
 
-## Needed from the owner before/while building
+## UI theme (owner decision: light, ESC-like — NOT the CRM's dark theme)
+
+Light, office-friendly palette in Accurate Power brand colors (navy + gold
+from the 2026 logo), familiar to staff coming from ESC's classic light UI:
+
+```
+--bg:        #F4F5F7   app background (light gray, like ESC)
+--panel:     #FFFFFF   cards, tables, dialogs
+--border:    #E1E4EA   hairlines        --border2: #C9CFDA
+--text:      #1E2633   primary text     --text2:   #5B6678   secondary
+--navy:      #1B2F55   brand primary — top bar, primary buttons, active nav
+--navy-d:    #142440   hover            --navy-soft: rgba(27,47,85,.08) selected rows
+--gold:      #E8B33C   brand accent — highlights, agreement badges
+--gold-d:    #C99721   hover
+```
+
+Dispatch-board / status color coding (ESC-style colored job cards):
+
+```
+emergency #D64545   pending   #8A94A6   scheduled #3B6FD4
+dispatched/enroute #E8902E    onsite #7A5BD6    complete #2E9E6B
+invoiced #2E9E6B (outline)    pm/agreement work carries a gold left edge
+```
+
+Typography: system UI stack, 14px base, dense tables (ESC users live in
+grids). The tech-facing PWA uses the same palette with larger touch targets.
 
 1. **ESC exports** — at minimum a sample (even 20 rows) of each: customers,
    locations, equipment, agreements, history. Real column headers drive the

@@ -122,6 +122,52 @@ only), plus a new `dispatcher` role added to the existing CHECK constraint.
 Separate Render web service (`apt-service`), same `DATABASE_URL` as the CRM
 (Supabase connection string), own `render.yaml` in this repo.
 
+## Learned from the live ESC system (owner screenshots, 2026-06-11)
+
+Nine screenshots of APT's production ESC refine the model:
+
+- **Customers are account-numbered** (e.g. `0204179`) and range from homeowners
+  to municipal accounts (cities, counties, utilities, Kennedy Space Center)
+  with **dozens-to-hundreds of locations each** — lift stations, substations,
+  fire stations, portable gens. Location lists/search must scale accordingly.
+- **Location is the working unit**, not customer: its own address, contact,
+  notes (gate codes, equipment model/serial currently live in free-text notes),
+  credit terms, maintenance schedule, and its own dispatch/invoice/quote
+  history. Billing address is separate from site address. Locations have an
+  **Equipment tab**.
+- **Agreements**: numbered, short **type codes** (seen: SAR, SLC, GLC, PAR,
+  FAR), original contract date, last-renewal date, expiration; 1- and 3-year
+  terms; plan tiers named Silver etc.; **visits-remaining counters** ("NEW 3
+  YEAR SILVER, 3 MAJOR REMAINING"); **major vs minor service** distinction with
+  task checklists (major: oil, oil filter, air filter, spark plugs, no-load or
+  transfer test); **tasks with next-service dates**; attached equipment; linked
+  dispatches and invoices. → Schema additions: `agreements.type_code`,
+  `last_renewal_at`, visit counters; `agreement_tasks` (checklist templates +
+  next-due); jobs link back to the agreement task they fulfill.
+- **Dispatches**: numbered; status Pending/Complete; a **running timestamped
+  note timeline** (admin scheduling notes + tech field notes — heavily used,
+  this is their system of record for customer contact); **multiple schedule
+  entries per dispatch** (date/time + tech + status, reschedules preserved);
+  attached parts; purchase orders; customer PO; type codes. → `dispatch_notes`
+  as an append-only timeline; `dispatches` already supports several rows per
+  job.
+- **Internal time** (vacations, shop time) is tracked as dispatches against an
+  "Accurate Power Non-Customer Time" pseudo-customer — keep an equivalent so
+  the board shows tech availability.
+- **Dispatch boards are configurable queues**, not only tech columns: they run
+  an "INVOICING" board whose columns are per-account invoice queues (Manatee
+  INV, Kissimmee INV, SECO INV…). → v1 ships the tech-schedule board, but the
+  board component should be column-config-driven so a job-status/invoicing
+  board view is cheap to add.
+- **Invoices** carry department (e.g. "76 Sarasota Service"), warehouse, item
+  catalog lines with cost/markup/sell, labor items, tax codes, terms
+  ("DUE ON RECEIPT"), customer PO, agreement link, bill-to vs ship-to, payments
+  applied/balance due, and gross-profit readout. ESC also surfaces AR
+  aging/customer balance from accounting — the QBO sync should pull balance
+  back for display.
+- Techs seen on the board: Cory, Austin, Ron, Jay (+ more) — small enough team
+  for simple per-tech columns.
+
 ## Needed from the owner before/while building
 
 1. **ESC exports** — at minimum a sample (even 20 rows) of each: customers,

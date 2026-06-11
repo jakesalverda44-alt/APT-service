@@ -35,4 +35,16 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 const port = Number(process.env.PORT) || 5100;
-app.listen(port, () => console.log(`apt-service backend on :${port}`));
+
+async function start() {
+  if (process.env.AUTO_MIGRATE !== 'false') {
+    const { runMigrations } = await import('./migrate');
+    await runMigrations();
+  }
+  app.listen(port, () => console.log(`apt-service backend on :${port}`));
+}
+
+start().catch((err) => {
+  console.error('startup failed:', err);
+  process.exit(1);
+});

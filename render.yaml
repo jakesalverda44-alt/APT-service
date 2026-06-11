@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: apt-service
+    env: node
+    buildCommand: >-
+      cd backend && npm install && npm run build &&
+      cd ../frontend && npm install && npm run build
+    startCommand: node backend/dist/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # The shared Supabase Postgres connection string — same value the CRM
+      # uses. Set in the Render dashboard (Environment tab); sync:false keeps
+      # secrets out of git.
+      - key: DATABASE_URL
+        sync: false
+      # Must match the CRM's JWT_SECRET so one login works in both programs.
+      - key: JWT_SECRET
+        sync: false

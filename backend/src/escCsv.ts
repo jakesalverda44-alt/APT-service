@@ -65,10 +65,14 @@ const FINGERPRINTS: [string, string[]][] = [
   ['esc_recurrence',  ['TransID', 'RecurType', 'NextDate']],
   ['esc_equipment',   ['CustNo', 'LocNo', 'Mfg', 'Serial', 'EqType']],
   ['esc_dispatches',  ['CustNo', 'LocNo', 'Dispatch', 'RecDate', 'Priority']],
+  ['esc_invoices',    ['Invoice', 'CustNo', 'InvDate', 'InvAmount', 'InvType']],
+  ['esc_invoice_lines', ['Invoice', 'Prod', 'Quan', 'PType']],
+  ['esc_payments',    ['Invoice', 'CustNo', 'CkNo', 'PayMethod']],
+  ['esc_receivables', ['Invoice', 'CustNo', 'InvAmt', 'PaidOff']],
 ];
 
 // High-volume tables we don't stage into import_rows (no cross-file joins need them).
-const NO_STAGE = new Set(['esc_dispatches']);
+const NO_STAGE = new Set(['esc_dispatches', 'esc_invoices', 'esc_invoice_lines', 'esc_payments', 'esc_receivables']);
 
 export function detectTable(headers: string[]): string | null {
   const set = new Set(headers);
@@ -163,6 +167,20 @@ function summaryFromNotes(notes: string, dispatchNo: string): string {
   const firstLine = (notes || '').split(/\r?\n/).map((s) => s.trim()).find(Boolean);
   if (!firstLine) return `ESC dispatch ${dispatchNo}`;
   return firstLine.length > 140 ? firstLine.slice(0, 140) + '…' : firstLine;
+}
+
+// ESC SalesLed PType: M=material, L=labor, H=helper labor, A/C/other=flat.
+function lineKind(ptype: string): string {
+  const p = ptype.toUpperCase();
+  if (p === 'L' || p === 'H') return 'labor';
+  if (p === 'M') return 'part';
+  return 'flat';
+}
+
+async function invoiceHistoryMap(client: PoolClient): Promise<Map<string, string>> {
+  const { rows } = await client.query(
+    'SELECT id, esc_invoice_no FROM service.invoice_history WHERE esc_invoice_no IS NOT NULL');
+  return new Map(rows.map((r) => [r.esc_invoice_no, r.id]));
 }
 
 function equipKind(eqType: string, model: string): string {
@@ -469,6 +487,99 @@ export async function importEscTable(
            invoice_no = EXCLUDED.invoice_no, summary = EXCLUDED.summary, notes = EXCLUDED.notes`,
         params);
       out.imported += values.length;
+    }
+
+  } else if (table === 'esc_invoices') {
+    const customers = await customerMap(client);
+    const locations = await locationMap(client);
+    const agreements = await agreementMap(client);
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      if (!r.Invoice || !r.CustNo) continue;
+      const customerId = customers.get(r.CustNo);
+      if (!customerId) { fail(i, r.Invoice, `customer ${r.CustNo} not imported`); continue; }
+      await client.query(
+        `INSERT INTO service.invoice_history
+           (esc_invoice_no, customer_id, location_id, agreement_id, esc_dispatch_no,
+            inv_date, due_date, inv_type, po_num, terms, amount)
+         VALUES ($1,$2,$3,$4,$5,$6::date,$7::date,$8,$9,$10,COALESCE($11::numeric,0))
+         ON CONFLICT (esc_invoice_no) DO UPDATE SET
+           customer_id = EXCLUDED.customer_id,
+           location_id = COALESCE(EXCLUDED.location_id, service.invoice_history.location_id),
+           agreement_id = COALESCE(EXCLUDED.agreement_id, service.invoice_history.agreement_id),
+           esc_dispatch_no = COALESCE(EXCLUDED.esc_dispatch_no, service.invoice_history.esc_dispatch_no),
+           inv_date = EXCLUDED.inv_date, due_date = EXCLUDED.due_date,
+           inv_type = EXCLUDED.inv_type, po_num = EXCLUDED.po_num, terms = EXCLUDED.terms,
+           amount = EXCLUDED.amount`,
+        [r.Invoice, customerId, locations.get(`${r.CustNo}|${r.LocNo}`) || null,
+         r.AgrmtNo ? agreements.get(r.AgrmtNo) || null : null, r.Dispatch || null,
+         dateOf(r.InvDate), dateOf(r.DueDate), r.InvType || null, r.PONum || null,
+         r.SlTerms || null, numOf(r.InvAmount)]);
+      out.imported++;
+    }
+
+  } else if (table === 'esc_invoice_lines') {
+    const invoices = await invoiceHistoryMap(client);
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      if (!r.Invoice) continue;
+      const invId = invoices.get(r.Invoice);
+      if (!invId) { fail(i, r.Invoice, 'invoice not imported'); continue; }
+      await client.query(
+        `INSERT INTO service.invoice_history_lines
+           (invoice_history_id, esc_line_no, kind, prod, description, qty, unit_price, amount, cost, serial)
+         VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10)
+         ON CONFLICT (invoice_history_id, esc_line_no) DO UPDATE SET
+           kind = EXCLUDED.kind, prod = EXCLUDED.prod, description = EXCLUDED.description,
+           qty = EXCLUDED.qty, unit_price = EXCLUDED.unit_price, amount = EXCLUDED.amount,
+           cost = EXCLUDED.cost, serial = EXCLUDED.serial`,
+        [invId, r.Count || String(i), lineKind(r.PType || ''), r.Prod || null,
+         r.Desc || null, numOf(r.Quan), numOf(r.Price), numOf(r.Amount), numOf(r.Cost),
+         r.Serial || null]);
+      out.imported++;
+    }
+
+  } else if (table === 'esc_payments') {
+    const customers = await customerMap(client);
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      if (!r.Invoice && !r.CustNo) continue;
+      await client.query(
+        `INSERT INTO service.payment_history
+           (esc_entry_id, customer_id, esc_invoice_no, amount, method, check_no, check_date, notes)
+         VALUES ($1,$2,$3,COALESCE($4::numeric,0),$5,$6,$7::date,$8)
+         ON CONFLICT (esc_entry_id) DO UPDATE SET
+           customer_id = EXCLUDED.customer_id, esc_invoice_no = EXCLUDED.esc_invoice_no,
+           amount = EXCLUDED.amount, method = EXCLUDED.method,
+           check_no = EXCLUDED.check_no, check_date = EXCLUDED.check_date, notes = EXCLUDED.notes`,
+        [r.EntryID || `${r.Invoice}-${r.Counter || i}`, customers.get(r.CustNo) || null,
+         r.Invoice || null, numOf(r.Amount), r.PayMethod || null, r.CkNo || null,
+         dateOf(r.CkDate), r.Notes || null]);
+      out.imported++;
+    }
+
+  } else if (table === 'esc_receivables') {
+    // The AR ledger: paid amounts + paid-off dates per invoice. Creates a
+    // minimal invoice record when Sales didn't include it (e.g. opening AR).
+    const customers = await customerMap(client);
+    const locations = await locationMap(client);
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      if (!r.Invoice || !r.CustNo) continue;
+      const customerId = customers.get(r.CustNo);
+      if (!customerId) { fail(i, r.Invoice, `customer ${r.CustNo} not imported`); continue; }
+      await client.query(
+        `INSERT INTO service.invoice_history
+           (esc_invoice_no, customer_id, location_id, inv_date, amount, paid, paid_off_date)
+         VALUES ($1,$2,$3,$4::date,COALESCE($5::numeric,0),COALESCE($6::numeric,0),$7::date)
+         ON CONFLICT (esc_invoice_no) DO UPDATE SET
+           paid = COALESCE($6::numeric, 0),
+           paid_off_date = $7::date,
+           amount = CASE WHEN service.invoice_history.amount = 0
+                         THEN COALESCE($5::numeric, 0) ELSE service.invoice_history.amount END`,
+        [r.Invoice, customerId, locations.get(`${r.CustNo}|${r.LocNo}`) || null,
+         dateOf(r.InvDate), numOf(r.InvAmt), numOf(r.Paid), dateOf(r.PaidOff)]);
+      out.imported++;
     }
 
   } else {

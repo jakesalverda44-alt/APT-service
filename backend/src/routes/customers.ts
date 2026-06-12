@@ -53,7 +53,7 @@ router.get('/:id', async (req, res) => {
   const { id } = req.params;
   const customer = (await pool.query('SELECT * FROM service.customers WHERE id = $1', [id])).rows[0];
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
-  const [locations, agreements, jobs, invoices, quotes, history] = await Promise.all([
+  const [locations, agreements, jobs, invoices, quotes, history, invHistory, ar] = await Promise.all([
     pool.query(
       `SELECT l.*,
               COALESCE(json_agg(e.* ORDER BY e.created_at) FILTER (WHERE e.id IS NOT NULL), '[]') AS equipment
@@ -83,6 +83,21 @@ router.get('/:id', async (req, res) => {
        LEFT JOIN service.locations l ON l.id = dh.location_id
        WHERE dh.customer_id = $1
        ORDER BY dh.received_date DESC NULLS LAST LIMIT 25`, [id]),
+    pool.query(
+      `SELECT ih.id, ih.esc_invoice_no, ih.inv_date, ih.amount, ih.paid,
+              ih.amount - ih.paid AS balance, ih.paid_off_date, l.name AS location_name
+       FROM service.invoice_history ih
+       LEFT JOIN service.locations l ON l.id = ih.location_id
+       WHERE ih.customer_id = $1
+       ORDER BY ih.inv_date DESC NULLS LAST LIMIT 15`, [id]),
+    // ESC-style aging: open balance bucketed by invoice age.
+    pool.query(
+      `SELECT COALESCE(SUM(amount - paid), 0)::numeric(12,2) AS balance,
+              COALESCE(SUM(amount - paid) FILTER (WHERE inv_date > CURRENT_DATE - 30), 0)::numeric(12,2) AS current,
+              COALESCE(SUM(amount - paid) FILTER (WHERE inv_date <= CURRENT_DATE - 30 AND inv_date > CURRENT_DATE - 60), 0)::numeric(12,2) AS over30,
+              COALESCE(SUM(amount - paid) FILTER (WHERE inv_date <= CURRENT_DATE - 60 AND inv_date > CURRENT_DATE - 90), 0)::numeric(12,2) AS over60,
+              COALESCE(SUM(amount - paid) FILTER (WHERE inv_date <= CURRENT_DATE - 90), 0)::numeric(12,2) AS over90
+       FROM service.invoice_history WHERE customer_id = $1 AND amount > paid`, [id]),
   ]);
   res.json({
     ...customer,
@@ -92,6 +107,8 @@ router.get('/:id', async (req, res) => {
     recent_invoices: invoices.rows,
     recent_quotes: quotes.rows,
     dispatch_history: history.rows,
+    invoice_history: invHistory.rows,
+    ar: ar.rows[0],
   });
 });
 

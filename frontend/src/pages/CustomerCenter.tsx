@@ -42,7 +42,14 @@ interface Detail {
     received_date: string | null; completed_date: string | null;
     invoice_no: string | null; summary: string | null; location_name: string | null;
   }[];
+  invoice_history: {
+    id: string; esc_invoice_no: string; inv_date: string | null; amount: string;
+    paid: string; balance: string; paid_off_date: string | null; location_name: string | null;
+  }[];
+  ar: { balance: string; current: string; over30: string; over60: string; over90: string };
 }
+
+const money = (v: string | number) => `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
 
 function DispatchRow({ d }: { d: Detail['dispatch_history'][number] }) {
   const [open, setOpen] = useState(false);
@@ -249,6 +256,19 @@ export default function CustomerCenter() {
                 <span>{[detail.billing_address1, detail.billing_city, detail.billing_state, detail.billing_zip].filter(Boolean).join(', ') || '—'}</span>
                 <span className="k">Phones</span><span>{phoneList(detail.phones) || '—'}</span>
                 <span className="k">Email</span><span>{detail.email || '—'}</span>
+                {detail.ar && Number(detail.ar.balance) > 0 && (
+                  <>
+                    <span className="k">Balance</span>
+                    <span>
+                      <strong>{money(detail.ar.balance)}</strong>
+                      <span className="muted">
+                        {Number(detail.ar.over30) > 0 && ` · 30+: ${money(detail.ar.over30)}`}
+                        {Number(detail.ar.over60) > 0 && ` · 60+: ${money(detail.ar.over60)}`}
+                        {Number(detail.ar.over90) > 0 && ` · 90+: ${money(detail.ar.over90)}`}
+                      </span>
+                    </span>
+                  </>
+                )}
               </div>
               {detail.notes && <div className="muted" style={{ marginTop: 8 }}>{detail.notes}</div>}
 
@@ -307,11 +327,23 @@ export default function CustomerCenter() {
 
               <section>
                 <h3>Recent Invoices</h3>
-                {detail.recent_invoices.length === 0 && <div className="muted">No invoices yet.</div>}
+                {detail.recent_invoices.length === 0 && detail.invoice_history.length === 0 && (
+                  <div className="muted">No invoices yet.</div>
+                )}
                 {detail.recent_invoices.map((i) => (
                   <div key={i.id} style={{ marginBottom: 4 }}>
                     <span className={`chip ${i.status === 'paid' ? 'complete' : 'pending'}`}>{i.status}</span>{' '}
-                    #{i.number} ${Number(i.total).toLocaleString()} (due ${Number(i.balance_due).toLocaleString()}) {fmtDate(i.issued_on)}
+                    #{i.number} {money(i.total)} (due {money(i.balance_due)}) {fmtDate(i.issued_on)}
+                  </div>
+                ))}
+                {detail.invoice_history.map((i) => (
+                  <div key={i.id} style={{ marginBottom: 4 }}>
+                    <span className={`chip ${Number(i.balance) <= 0 ? 'complete' : 'pending'}`}>
+                      {Number(i.balance) <= 0 ? 'paid' : 'open'}
+                    </span>{' '}
+                    #{i.esc_invoice_no} {money(i.amount)}
+                    {Number(i.balance) > 0 && <strong> (bal {money(i.balance)})</strong>}
+                    <span className="muted"> {fmtDate(i.inv_date)}{i.location_name ? ` · ${i.location_name}` : ''}</span>
                   </div>
                 ))}
               </section>

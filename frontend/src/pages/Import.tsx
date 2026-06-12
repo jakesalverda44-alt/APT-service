@@ -121,9 +121,7 @@ export default function Import() {
         const total: CsvOutcome = { table: '', imported: 0, errors: [] };
         for (let i = 0; i < chunks.length; i++) {
           if (chunks.length > 1) {
-            results[results.length] = { file: `${file.name} — part ${i + 1}/${chunks.length}…` };
-            setCsvResults([...results]);
-            results.pop();
+            setCsvResults([...results, { file: `${file.name} — uploading part ${i + 1} of ${chunks.length}` }]);
           }
           const part = await postCsvChunk(file.name, chunks[i]);
           total.table = part.table;
@@ -160,18 +158,20 @@ export default function Import() {
         </div>
         {csvResults.length > 0 && (
           <div style={{ marginTop: 10 }}>
-            {csvResults.map((r) => (
-              <div key={r.file} style={{ marginBottom: 4 }}>
+            {csvResults.map((r, idx) => (
+              <div key={`${r.file}-${idx}`} style={{ marginBottom: 4 }}>
                 {r.error ? (
                   <span className="error">{r.file}: {r.error}</span>
+                ) : !r.outcome ? (
+                  <span className="muted">⏳ {r.file}</span>
                 ) : (
                   <>
-                    <span className={`chip ${r.outcome!.errors.length ? 'pending' : 'complete'}`}>
-                      {r.outcome!.table.replace('esc_', '')}: {r.outcome!.imported} imported
-                      {r.outcome!.errors.length ? `, ${r.outcome!.errors.length}+ issues` : ''}
+                    <span className={`chip ${r.outcome.errors.length ? 'pending' : 'complete'}`}>
+                      {r.outcome.table.replace('esc_', '')}: {r.outcome.imported.toLocaleString()} imported
+                      {r.outcome.errors.length ? `, ${r.outcome.errors.length}+ issues` : ''}
                     </span>{' '}
                     <span className="muted">{r.file}</span>
-                    {r.outcome!.errors.slice(0, 3).map((e, i) => (
+                    {r.outcome.errors.slice(0, 3).map((e, i) => (
                       <div key={i} className="error" style={{ fontSize: 12 }}>
                         row {e.row} ({e.key}): {e.error}
                       </div>

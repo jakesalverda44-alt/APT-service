@@ -76,8 +76,12 @@ export default function Import() {
   const [csvResults, setCsvResults] = useState<{ file: string; outcome?: CsvOutcome; error?: string }[]>([]);
   const [error, setError] = useState('');
   const [batches, setBatches] = useState<Batch[]>([]);
+  const [summary, setSummary] = useState<Record<string, string> | null>(null);
 
-  const loadBatches = () => api<Batch[]>('/api/import/batches').then(setBatches).catch(() => setBatches([]));
+  const loadBatches = () => {
+    api<Batch[]>('/api/import/batches').then(setBatches).catch(() => setBatches([]));
+    api<Record<string, string>>('/api/import/summary').then(setSummary).catch(() => setSummary(null));
+  };
   useEffect(() => { loadBatches(); }, []);
 
   async function upload() {
@@ -142,6 +146,23 @@ export default function Import() {
   return (
     <div className="page">
       <div className="toolbar"><h1>Import from ESC</h1></div>
+
+      {summary && (
+        <div className="panel" style={{ padding: '10px 16px' }}>
+          <strong>Database totals (each record counted once):</strong>{' '}
+          <span className="muted">
+            {Number(summary.customers).toLocaleString()} customers ·{' '}
+            {Number(summary.locations).toLocaleString()} locations ·{' '}
+            {Number(summary.agreements).toLocaleString()} agreements ·{' '}
+            {Number(summary.agreement_tasks).toLocaleString()} tasks ·{' '}
+            {Number(summary.equipment).toLocaleString()} equipment ·{' '}
+            {Number(summary.dispatch_history).toLocaleString()} dispatches ·{' '}
+            {Number(summary.invoice_history).toLocaleString()} invoices ·{' '}
+            {Number(summary.invoice_lines).toLocaleString()} invoice lines ·{' '}
+            {Number(summary.payments).toLocaleString()} payments
+          </span>
+        </div>
+      )}
 
       <div className="panel" style={{ padding: 16 }}>
         <h3 style={{ margin: '0 0 6px' }}>ESC database export (CSV files)</h3>

@@ -106,6 +106,22 @@ router.post(
   }
 );
 
+// Live totals of what's actually in the database — the real answer to
+// "did everything import?", independent of the per-part upload receipts.
+router.get('/summary', async (_req, res) => {
+  const { rows } = await pool.query(`SELECT
+    (SELECT count(*) FROM service.customers)        AS customers,
+    (SELECT count(*) FROM service.locations)        AS locations,
+    (SELECT count(*) FROM service.agreements)       AS agreements,
+    (SELECT count(*) FROM service.agreement_tasks)  AS agreement_tasks,
+    (SELECT count(*) FROM service.equipment)        AS equipment,
+    (SELECT count(*) FROM service.dispatch_history) AS dispatch_history,
+    (SELECT count(*) FROM service.invoice_history)  AS invoice_history,
+    (SELECT count(*) FROM service.invoice_history_lines) AS invoice_lines,
+    (SELECT count(*) FROM service.payment_history)  AS payments`);
+  res.json(rows[0]);
+});
+
 router.get('/batches', async (_req, res) => {
   const { rows } = await pool.query(
     `SELECT id, source, filename, filters, stats, created_at

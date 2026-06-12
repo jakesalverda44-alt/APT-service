@@ -48,8 +48,8 @@ export default function Agreements() {
   useEffect(() => {
     if (!creating || custQuery.length < 2) return setCustHits([]);
     const t = setTimeout(() => {
-      api<CustomerHit[]>(`/api/customers?q=${encodeURIComponent(custQuery)}&limit=8`)
-        .then(setCustHits).catch(() => setCustHits([]));
+      api<{ rows: CustomerHit[] }>(`/api/customers?q=${encodeURIComponent(custQuery)}&limit=8&status=all`)
+        .then((d) => setCustHits(d.rows)).catch(() => setCustHits([]));
     }, 250);
     return () => clearTimeout(t);
   }, [creating, custQuery]);

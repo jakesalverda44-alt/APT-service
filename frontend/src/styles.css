@@ -113,6 +113,32 @@ table.grid tr.selected td { background: var(--gold-soft); }
 .kv { display: grid; grid-template-columns: 110px 1fr; gap: 2px 10px; font-size: 13px; }
 .kv .k { color: var(--text2); }
 
+/* Location cards in the Customer Center detail (ESC-style structured layout) */
+.loc-card {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  margin-bottom: 10px; background: #fff;
+}
+.loc-card .loc-name { font-weight: 700; color: var(--navy); }
+.loc-card a { color: var(--navy); text-decoration: none; }
+.loc-card a:hover { text-decoration: underline; }
+.access-flag {
+  margin: 6px 0; padding: 6px 8px; border-radius: 6px;
+  background: var(--gold-soft); border: 1px solid var(--gold);
+  font-weight: 600; color: var(--navy-d);
+}
+.loc-equip {
+  margin: 6px 0; padding: 6px 8px; border-left: 3px solid var(--navy);
+  background: var(--navy-soft); border-radius: 0 6px 6px 0; font-size: 12.5px;
+}
+.loc-notes { margin-top: 6px; }
+.loc-notes .notes-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2);
+}
+.loc-notes .notes-body { white-space: pre-wrap; font-size: 12.5px; color: var(--text2); }
+button.link-sm {
+  background: none; border: 0; color: var(--navy); cursor: pointer; padding: 2px 0; font-size: 12px;
+}
+
 /* ── Badges & status chips ──────────────────────────────────────────────── */
 .chip {
   display: inline-block; border-radius: 10px; padding: 1px 9px;

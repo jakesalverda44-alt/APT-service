@@ -27,8 +27,11 @@ interface Detail {
   notes: string | null;
   locations: {
     id: string; name: string | null; address1: string | null; city: string | null;
-    access_notes: string | null; phones: Record<string, string>;
-    equipment: { id: string; kind: string; manufacturer: string | null; model: string | null; serial: string | null }[];
+    state: string | null; zip: string | null;
+    access_notes: string | null; notes: string | null;
+    contact_name: string | null; email: string | null; phones: Record<string, string>;
+    equipment: { id: string; kind: string; manufacturer: string | null; model: string | null;
+                 serial: string | null; kw: string | null }[];
   }[];
   agreements: { id: string; type_code: string | null; plan_name: string | null; status: string; expires_on: string | null }[];
   recent_jobs: { id: string; number: number; type: string; status: string; summary: string | null; created_at: string }[];
@@ -39,9 +42,54 @@ interface Detail {
 const phoneList = (phones: Record<string, string>) =>
   Object.entries(phones || {}).map(([label, num]) => `${num} (${label.replace('_', ' ')})`).join('  ');
 
+type LocationDetail = Detail['locations'][number];
+
+function LocationCard({ loc }: { loc: LocationDetail }) {
+  const [showNotes, setShowNotes] = useState(false);
+  const addr = [loc.address1, loc.city, loc.state, loc.zip].filter(Boolean).join(', ');
+  const phones = Object.entries(loc.phones || {});
+  const long = !!loc.notes && loc.notes.length > 160;
+  const notesText = long && !showNotes ? loc.notes!.slice(0, 160) + '…' : loc.notes;
+  return (
+    <div className="loc-card">
+      <div className="loc-name">{loc.name || '—'}</div>
+      {addr && <div className="muted">{addr}</div>}
+      {loc.contact_name && <div><span className="muted">Contact:</span> {loc.contact_name}</div>}
+      {phones.map(([label, num]) => (
+        <div key={label}><a href={`tel:${num}`}>{num}</a> <span className="muted">({label.replace(/_/g, ' ')})</span></div>
+      ))}
+      {loc.email && <div><a href={`mailto:${loc.email}`}>{loc.email}</a></div>}
+      {loc.access_notes && (
+        <div className="access-flag"><span className="chip gold">⚠ access</span> {loc.access_notes}</div>
+      )}
+      {loc.equipment.length > 0 && (
+        <div className="loc-equip">
+          {loc.equipment.map((e) => (
+            <div key={e.id}>🔧 {[e.kind, e.manufacturer, e.model, e.serial, e.kw ? `${e.kw}kW` : '']
+              .filter(Boolean).join(' · ')}</div>
+          ))}
+        </div>
+      )}
+      {loc.notes && (
+        <div className="loc-notes">
+          <div className="notes-label">Location Notes</div>
+          <div className="notes-body">{notesText}</div>
+          {long && (
+            <button className="link-sm" onClick={() => setShowNotes(!showNotes)}>
+              {showNotes ? 'show less' : 'show all'}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CustomerCenter() {
   const [q, setQ] = useState('');
+  const [status, setStatus] = useState('active');
   const [rows, setRows] = useState<Row[]>([]);
+  const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [modal, setModal] = useState<'job' | 'edit' | 'location' | 'equipment' | 'customer' | null>(null);
@@ -49,10 +97,12 @@ export default function CustomerCenter() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      api<Row[]>(`/api/customers?q=${encodeURIComponent(q)}`).then(setRows).catch(() => setRows([]));
+      api<{ rows: Row[]; total: number }>(`/api/customers?q=${encodeURIComponent(q)}&status=${status}`)
+        .then((d) => { setRows(d.rows); setTotal(d.total); })
+        .catch(() => { setRows([]); setTotal(0); });
     }, 250);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, status]);
 
   const refresh = useCallback(() => {
     if (!selected) return setDetail(null);
@@ -123,8 +173,15 @@ export default function CustomerCenter() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="active">Active customers</option>
+          <option value="inactive">Inactive customers</option>
+          <option value="all">All customers</option>
+        </select>
         <button className="primary" onClick={() => setModal('customer')}>New Customer</button>
-        <span className="muted">{rows.length} rows</span>
+        <span className="muted">
+          {total > rows.length ? `showing ${rows.length} of ${total.toLocaleString()}` : `${total.toLocaleString()} rows`}
+        </span>
       </div>
       <div className="split">
         <div className="master panel scroll">
@@ -176,18 +233,7 @@ export default function CustomerCenter() {
 
               <section>
                 <h3>Locations ({detail.locations.length})</h3>
-                {detail.locations.map((l) => (
-                  <div key={l.id} style={{ marginBottom: 8 }}>
-                    <strong>{l.name || '—'}</strong>
-                    <div className="muted">{[l.address1, l.city].filter(Boolean).join(', ')}</div>
-                    {l.access_notes && <div><span className="chip gold">access</span> {l.access_notes}</div>}
-                    {l.equipment.length > 0 && (
-                      <div className="muted">
-                        {l.equipment.map((e) => `${e.kind}: ${[e.manufacturer, e.model, e.serial].filter(Boolean).join(' ')}`).join('; ')}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {detail.locations.map((l) => <LocationCard key={l.id} loc={l} />)}
               </section>
 
               <section>

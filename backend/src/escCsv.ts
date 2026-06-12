@@ -124,6 +124,17 @@ function billingFreq(contrPer: string): string | null {
   return null;
 }
 
+// ESC's Location.Notes is a general free-text field staff filled with contacts,
+// equipment specs, history AND access info. Keep the whole thing as notes, and
+// lift only genuine access lines (gate codes etc.) into access_notes.
+const ACCESS_RE = /gate\s*code|lock\s*box|key\s*(?:code|pad|box)|alarm\s*code|combo|access\s*code|gate\b/i;
+function splitNotes(blob?: string): { notes: string | null; access: string | null } {
+  if (!blob || !blob.trim()) return { notes: null, access: null };
+  const access = blob.split(/\r?\n/).map((l) => l.trim())
+    .filter((l) => l && ACCESS_RE.test(l));
+  return { notes: blob.trim(), access: access.length ? access.join('\n') : null };
+}
+
 const KW_RE = /(\d+(?:\.\d+)?)\s*k\s*w\b/i;
 function extractKw(...fields: (string | undefined)[]): number | null {
   for (const f of fields) {
@@ -221,10 +232,11 @@ export async function importEscTable(
       if (r.Fax && !Object.values(phones).includes(r.Fax)) phones.fax = phones.fax || r.Fax;
       const contactName = contactVals.find((v) => v && !isLabel(v)) || null;
       const email = [r.Email, r.Email2, r.Email3, r.Email4].find(Boolean) || null;
+      const { notes, access } = splitNotes(r.Notes);
       await client.query(
         `INSERT INTO service.locations (customer_id, esc_location_no, name, address1, address2,
-           city, state, zip, access_notes, contact_name, phones, email, tax_code, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14)
+           city, state, zip, access_notes, notes, contact_name, phones, email, tax_code, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15)
          ON CONFLICT (customer_id, esc_location_no) DO UPDATE SET
            name = COALESCE(NULLIF(EXCLUDED.name,''), service.locations.name),
            address1 = COALESCE(NULLIF(EXCLUDED.address1,''), service.locations.address1),
@@ -232,14 +244,15 @@ export async function importEscTable(
            city  = COALESCE(NULLIF(EXCLUDED.city,''),  service.locations.city),
            state = COALESCE(NULLIF(EXCLUDED.state,''), service.locations.state),
            zip   = COALESCE(NULLIF(EXCLUDED.zip,''),   service.locations.zip),
-           access_notes = COALESCE(NULLIF(EXCLUDED.access_notes,''), service.locations.access_notes),
+           access_notes = EXCLUDED.access_notes,
+           notes = EXCLUDED.notes,
            contact_name = COALESCE(NULLIF(EXCLUDED.contact_name,''), service.locations.contact_name),
            phones = service.locations.phones || EXCLUDED.phones,
            email = COALESCE(NULLIF(EXCLUDED.email,''), service.locations.email),
            tax_code = COALESCE(NULLIF(EXCLUDED.tax_code,''), service.locations.tax_code),
            status = EXCLUDED.status`,
         [customerId, r.LocNo, r.LocName || r.Add1 || null, r.Add1 || null, r.Add2 || null,
-         r.City || null, r.State || null, r.Zip || null, r.Notes || null, contactName,
+         r.City || null, r.State || null, r.Zip || null, access, notes, contactName,
          JSON.stringify(phones), email, r.TaxCode || null,
          isInactive(r.LocationInactive) ? 'inactive' : 'active']);
       out.imported++;

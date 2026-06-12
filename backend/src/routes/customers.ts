@@ -7,20 +7,34 @@ router.use(requireAuth);
 
 // Customer Center list: search across customer name, location name and
 // address (ESC searches the same fields). Returns locations flattened so the
-// grid matches ESC's Full Name / Location Name / Address columns.
+// grid matches ESC's Full Name / Location Name / Address columns. Defaults to
+// active customers only, matching ESC's "Active Customers" filter; the total
+// (pre-limit) count is returned so the UI can show "showing N of M".
 router.get('/', async (req, res) => {
   const q = String(req.query.q || '').trim();
+  const status = String(req.query.status || 'active');   // active | inactive | all
   const limit = Math.min(Number(req.query.limit) || 100, 500);
   const params: unknown[] = [];
-  let where = '';
+  const conds: string[] = [];
+  if (status === 'active' || status === 'inactive') {
+    params.push(status);
+    conds.push(`c.status = $${params.length}`);
+  }
   if (q) {
     params.push(`%${q}%`);
-    where = `WHERE c.name ILIKE $1 OR c.esc_account_no LIKE $1
-             OR l.name ILIKE $1 OR l.address1 ILIKE $1 OR l.city ILIKE $1`;
+    conds.push(`(c.name ILIKE $${params.length} OR c.esc_account_no LIKE $${params.length}
+                 OR l.name ILIKE $${params.length} OR l.address1 ILIKE $${params.length}
+                 OR l.city ILIKE $${params.length})`);
   }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+
+  const total = Number((await pool.query(
+    `SELECT count(*)::int AS n FROM service.customers c
+     LEFT JOIN service.locations l ON l.customer_id = c.id ${where}`, params)).rows[0].n);
+
   params.push(limit);
   const { rows } = await pool.query(
-    `SELECT c.id AS customer_id, c.name AS customer_name, c.esc_account_no,
+    `SELECT c.id AS customer_id, c.name AS customer_name, c.esc_account_no, c.status,
             l.id AS location_id, l.name AS location_name,
             l.address1, l.city, l.state, l.zip
      FROM service.customers c
@@ -30,7 +44,7 @@ router.get('/', async (req, res) => {
      LIMIT $${params.length}`,
     params
   );
-  res.json(rows);
+  res.json({ rows, total });
 });
 
 // Full detail for the right-hand panel: customer + locations (with equipment),

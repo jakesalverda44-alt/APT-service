@@ -110,6 +110,16 @@ function buildPhones(pairs: [string | undefined, string | undefined][]): Record<
   return phones;
 }
 
+// ESC displays customers LastName-first ("DAYTONA,CITY OF", "Anselmo,Mary") and
+// the whole office knows that ordering. Use ESC's own FullName (stripping the
+// account number it embeds) so display and sort match dESCO exactly.
+function escCustomerName(r: Rec): string {
+  let n = (r.FullName || '').trim();
+  if (n && r.CustNo && n.endsWith(r.CustNo)) n = n.slice(0, -r.CustNo.length);
+  if (!n.trim()) n = [r.LastName, r.FirstName].map((s) => (s || '').trim()).filter(Boolean).join(',');
+  return n.replace(/\s+/g, ' ').trim() || r.CustNo;
+}
+
 function planFromTask(code: string): string | null {
   const c = code.toUpperCase();
   if (c.includes('SILVER')) return 'Silver';
@@ -229,7 +239,7 @@ export async function importEscTable(
     for (let i = 0; i < records.length; i++) {
       const r = records[i];
       if (!r.CustNo) continue;
-      const name = [r.FirstName, r.LastName].filter(Boolean).join(' ').trim() || r.FullName || r.CustNo;
+      const name = escCustomerName(r);
       const phones = buildPhones([
         [r.Phone1, r.lblPhone1], [r.Phone2, r.lblPhone2],
         [r.Phone3, r.lblPhone3], [r.Phone4, r.lblPhone4],

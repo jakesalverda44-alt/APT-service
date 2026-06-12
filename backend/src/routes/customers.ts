@@ -39,7 +39,7 @@ router.get('/:id', async (req, res) => {
   const { id } = req.params;
   const customer = (await pool.query('SELECT * FROM service.customers WHERE id = $1', [id])).rows[0];
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
-  const [locations, agreements, jobs, invoices] = await Promise.all([
+  const [locations, agreements, jobs, invoices, quotes] = await Promise.all([
     pool.query(
       `SELECT l.*,
               COALESCE(json_agg(e.* ORDER BY e.created_at) FILTER (WHERE e.id IS NOT NULL), '[]') AS equipment
@@ -56,6 +56,12 @@ router.get('/:id', async (req, res) => {
     pool.query(
       `SELECT id, number, status, total, balance_due, issued_on
        FROM service.invoices WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 15`, [id]),
+    pool.query(
+      `SELECT qt.id, qt.number, qt.status, qt.summary, qt.created_at,
+              COALESCE((SELECT SUM(ql.qty * ql.unit_price) FROM service.quote_lines ql
+                        WHERE ql.quote_id = qt.id), 0) + qt.tax AS total
+       FROM service.quotes qt WHERE qt.customer_id = $1
+       ORDER BY qt.created_at DESC LIMIT 10`, [id]),
   ]);
   res.json({
     ...customer,
@@ -63,6 +69,7 @@ router.get('/:id', async (req, res) => {
     agreements: agreements.rows,
     recent_jobs: jobs.rows,
     recent_invoices: invoices.rows,
+    recent_quotes: quotes.rows,
   });
 });
 

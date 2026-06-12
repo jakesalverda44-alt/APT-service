@@ -33,6 +33,7 @@ interface Detail {
   agreements: { id: string; type_code: string | null; plan_name: string | null; status: string; expires_on: string | null }[];
   recent_jobs: { id: string; number: number; type: string; status: string; summary: string | null; created_at: string }[];
   recent_invoices: { id: string; number: number; status: string; total: string; balance_due: string; issued_on: string | null }[];
+  recent_quotes: { id: string; number: number; status: string; summary: string | null; total: string; created_at: string }[];
 }
 
 const phoneList = (phones: Record<string, string>) =>
@@ -207,6 +208,19 @@ export default function CustomerCenter() {
                   <div key={j.id} style={{ marginBottom: 4 }}>
                     <span className={`chip ${j.status}`}>{j.status}</span>{' '}
                     #{j.number} {j.type} — {j.summary || '—'} <span className="muted">{fmtDate(j.created_at)}</span>
+                  </div>
+                ))}
+              </section>
+
+              <section>
+                <h3>Recent Quotes</h3>
+                {detail.recent_quotes.length === 0 && <div className="muted">No quotes yet.</div>}
+                {detail.recent_quotes.map((qt) => (
+                  <div key={qt.id} style={{ marginBottom: 4, cursor: 'pointer' }}
+                       onClick={() => navigate(`/quotes?open=${qt.id}`)}>
+                    <span className={`chip ${qt.status === 'accepted' ? 'complete' : 'pending'}`}>{qt.status}</span>{' '}
+                    #{qt.number} ${Number(qt.total).toLocaleString()} — {qt.summary || '—'}
+                    <span className="muted"> {fmtDate(qt.created_at)}</span>
                   </div>
                 ))}
               </section>

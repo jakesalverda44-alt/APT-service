@@ -15,6 +15,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 | Customer Center | Customer Center | Search grid + detail panel; locations, equipment, agreements, job/invoice history; New Job / Edit / Add Location / Add Equipment |
 | Dispatch Board | Dispatch Board | Tech columns + "To Schedule" tray; color-coded cards; click to advance status, drag to reassign; Block Time Off (non-customer time) |
 | Jobs | Dispatch List | Filterable grid; append-only note timeline; parts & labor lines; Mark Complete → Create Invoice |
+| Quotes | Quotes | Repair quotes with parts/labor lines, validity dates, printable; Accept converts to a job with the quoted lines copied over |
 | Agreements | Agreement List | Type codes, plan tiers, visit counters (major/minor), tasks with checklists & next-due dates, Renew, on-demand PM generation |
 | Invoices | Invoicing/Receivables | Created from jobs; tax/terms; payments with partial/paid status; printable; QBO sync fields ready |
 | Intake | — (new) | Awarded CRM projects arrive automatically; Accept → service job |

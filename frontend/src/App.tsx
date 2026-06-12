@@ -9,6 +9,7 @@ import Intake from './pages/Intake';
 import Import from './pages/Import';
 import Invoices from './pages/Invoices';
 import MyDay from './pages/MyDay';
+import Quotes from './pages/Quotes';
 
 function Shell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               <NavLink to="/customers">Customer Center</NavLink>
               <NavLink to="/board">Dispatch Board</NavLink>
               <NavLink to="/jobs">Jobs</NavLink>
+              <NavLink to="/quotes">Quotes</NavLink>
               <NavLink to="/agreements">Agreements</NavLink>
               <NavLink to="/invoices">Invoices</NavLink>
               <NavLink to="/intake">Intake</NavLink>
@@ -68,6 +70,7 @@ export default function App() {
       <Route path="/intake" element={<Shell><Intake /></Shell>} />
       <Route path="/import" element={<Shell><Import /></Shell>} />
       <Route path="/invoices" element={<Shell><Invoices /></Shell>} />
+      <Route path="/quotes" element={<Shell><Quotes /></Shell>} />
       <Route path="/myday" element={<Shell><MyDay /></Shell>} />
       <Route path="*" element={<Navigate to={auth.user?.role === 'technician' ? '/myday' : '/customers'} replace />} />
     </Routes>

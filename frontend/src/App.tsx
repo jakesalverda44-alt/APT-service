@@ -6,6 +6,7 @@ import DispatchBoard from './pages/DispatchBoard';
 import Jobs from './pages/Jobs';
 import Agreements from './pages/Agreements';
 import Intake from './pages/Intake';
+import Import from './pages/Import';
 
 function Shell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
@@ -23,6 +24,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           <NavLink to="/jobs">Jobs</NavLink>
           <NavLink to="/agreements">Agreements</NavLink>
           <NavLink to="/intake">Intake</NavLink>
+          <NavLink to="/import">Import</NavLink>
         </nav>
         <span className="spacer" />
         <span className="user">{user.name}</span>
@@ -50,6 +52,7 @@ export default function App() {
       <Route path="/jobs" element={<Shell><Jobs /></Shell>} />
       <Route path="/agreements" element={<Shell><Agreements /></Shell>} />
       <Route path="/intake" element={<Shell><Intake /></Shell>} />
+      <Route path="/import" element={<Shell><Import /></Shell>} />
       <Route path="*" element={<Navigate to="/customers" replace />} />
     </Routes>
   );

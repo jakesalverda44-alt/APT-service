@@ -8,6 +8,7 @@ import jobRoutes from './routes/jobs';
 import dispatchRoutes from './routes/dispatches';
 import agreementRoutes from './routes/agreements';
 import intakeRoutes from './routes/intake';
+import importRoutes from './routes/import';
 
 dotenv.config();
 
@@ -22,6 +23,7 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/dispatches', dispatchRoutes);
 app.use('/api/agreements', agreementRoutes);
 app.use('/api/intake', intakeRoutes);
+app.use('/api/import', importRoutes);
 
 // In production the built frontend is served from the same process.
 const frontendDist = path.join(__dirname, '../../frontend/dist');

@@ -68,7 +68,7 @@ router.post('/', async (req: AuthRequest, res) => {
 });
 
 router.patch('/:id', async (req, res) => {
-  const allowed = ['status', 'priority', 'summary', 'customer_po', 'type', 'location_id', 'equipment_id'];
+  const allowed = ['status', 'priority', 'summary', 'customer_po', 'type', 'customer_id', 'location_id', 'equipment_id', 'agreement_id'];
   const sets: string[] = [];
   const params: unknown[] = [];
   for (const k of allowed) {

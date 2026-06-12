@@ -12,6 +12,7 @@ interface IntakeItem {
 export default function Intake() {
   const [items, setItems] = useState<IntakeItem[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState('');
 
   const load = () => api<IntakeItem[]>('/api/intake').then(setItems).catch(() => setItems([]));
   useEffect(() => { load(); }, []);
@@ -19,7 +20,15 @@ export default function Intake() {
   async function act(item: IntakeItem, action: 'accept' | 'dismiss') {
     setBusy(item.id);
     try {
-      await api(`/api/intake/${item.id}/${action}`, { method: 'POST', body: '{}' });
+      const res = await api<{ number?: number; customer_created?: boolean; equipment_created?: boolean }>(
+        `/api/intake/${item.id}/${action}`, { method: 'POST', body: '{}' });
+      if (action === 'accept' && res.number) {
+        const extras = [
+          res.customer_created ? 'new customer added' : 'linked to existing customer',
+          res.equipment_created ? 'generator equipment recorded' : null,
+        ].filter(Boolean).join(', ');
+        setMsg(`Job #${res.number} created — ${extras}.`);
+      }
       await load();
     } finally {
       setBusy(null);
@@ -31,7 +40,7 @@ export default function Intake() {
       <div className="toolbar">
         <h1>Project Intake</h1>
         <span className="muted">
-          Awarded jobs flow here automatically from the sales CRM. Accept to create a service job.
+          {msg || 'Awarded jobs flow here automatically from the sales CRM. Accept to create a service job (the customer comes across too).'}
         </span>
       </div>
       <div className="panel scroll" style={{ flex: 1 }}>

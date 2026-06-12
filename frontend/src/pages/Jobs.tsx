@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, fmtDate, fmtTime } from '../api';
 
 interface JobRow {
@@ -6,10 +7,12 @@ interface JobRow {
   summary: string | null; created_at: string; next_visit: string | null;
   customer_name: string | null; location_name: string | null; city: string | null;
 }
+interface JobLine { id: string; kind: string; description: string; qty: string; unit_price: string }
 interface JobDetail extends JobRow {
   address1: string | null; state: string | null; zip: string | null; access_notes: string | null;
   notes: { id: string; author_name: string | null; body: string; created_at: string }[];
   dispatches: { id: string; tech_name: string | null; scheduled_start: string | null; status: string }[];
+  lines: JobLine[];
 }
 
 export default function Jobs() {
@@ -37,12 +40,47 @@ export default function Jobs() {
     api<JobDetail>(`/api/jobs/${selected}`).then(setDetail).catch(() => setDetail(null));
   }, [selected]);
 
+  const navigate = useNavigate();
+  const refreshDetail = () => detail && api<JobDetail>(`/api/jobs/${detail.id}`).then(setDetail);
+
   async function addNote(e: React.FormEvent) {
     e.preventDefault();
     if (!detail || !note.trim()) return;
     await api(`/api/jobs/${detail.id}/notes`, { method: 'POST', body: JSON.stringify({ body: note }) });
     setNote('');
-    api<JobDetail>(`/api/jobs/${detail.id}`).then(setDetail);
+    refreshDetail();
+  }
+
+  async function addLine(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!detail) return;
+    const f = new FormData(e.currentTarget);
+    await api(`/api/jobs/${detail.id}/lines`, {
+      method: 'POST',
+      body: JSON.stringify({
+        kind: f.get('kind'), description: f.get('description'),
+        qty: Number(f.get('qty')) || 1, unit_price: Number(f.get('unit_price')) || 0,
+      }),
+    });
+    e.currentTarget?.reset?.();
+    refreshDetail();
+  }
+
+  async function removeLine(lineId: string) {
+    await api(`/api/jobs/lines/${lineId}`, { method: 'DELETE' });
+    refreshDetail();
+  }
+
+  async function markComplete() {
+    if (!detail) return;
+    await api(`/api/jobs/${detail.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'complete' }) });
+    refreshDetail(); load();
+  }
+
+  async function createInvoice() {
+    if (!detail) return;
+    const inv = await api<{ id: string }>(`/api/invoices/from-job/${detail.id}`, { method: 'POST', body: '{}' });
+    navigate(`/invoices?open=${inv.id}`);
   }
 
   return (
@@ -108,6 +146,48 @@ export default function Jobs() {
                     {d.tech_name ? ` — ${d.tech_name}` : ''}
                   </div>
                 ))}
+              </section>
+
+              <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
+                {detail.status !== 'complete' && detail.status !== 'invoiced' && detail.status !== 'cancelled' && (
+                  <button className="ghost" onClick={markComplete}>Mark Complete</button>
+                )}
+                {(detail.status === 'complete' || detail.lines.length > 0) && detail.status !== 'invoiced' && (
+                  <button className="primary" onClick={createInvoice}>Create Invoice</button>
+                )}
+              </div>
+
+              <section>
+                <h3>Parts & Labor</h3>
+                {detail.lines.map((l) => (
+                  <div key={l.id} style={{ display: 'flex', gap: 6, marginBottom: 3, alignItems: 'baseline' }}>
+                    <span className="chip outline">{l.kind}</span>
+                    <span style={{ flex: 1 }}>{l.description}</span>
+                    <span className="muted">{Number(l.qty)} × ${Number(l.unit_price).toFixed(2)}</span>
+                    <strong>${(Number(l.qty) * Number(l.unit_price)).toFixed(2)}</strong>
+                    {detail.status !== 'invoiced' && (
+                      <button className="ghost" style={{ padding: '0 6px' }} onClick={() => removeLine(l.id)}>×</button>
+                    )}
+                  </div>
+                ))}
+                {detail.lines.length > 0 && (
+                  <div style={{ textAlign: 'right', fontWeight: 600 }}>
+                    Subtotal: ${detail.lines.reduce((s, l) => s + Number(l.qty) * Number(l.unit_price), 0).toFixed(2)}
+                  </div>
+                )}
+                {detail.status !== 'invoiced' && (
+                  <form onSubmit={addLine} style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                    <select name="kind" style={{ width: 80 }}>
+                      <option value="labor">labor</option>
+                      <option value="part">part</option>
+                      <option value="flat">flat</option>
+                    </select>
+                    <input name="description" placeholder="Description" required style={{ flex: 1 }} />
+                    <input name="qty" type="number" step="0.25" placeholder="Qty" defaultValue={1} style={{ width: 60 }} />
+                    <input name="unit_price" type="number" step="0.01" placeholder="$" style={{ width: 80 }} />
+                    <button className="ghost">Add</button>
+                  </form>
+                )}
               </section>
 
               <section>

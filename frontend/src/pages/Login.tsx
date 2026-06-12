@@ -19,7 +19,7 @@ export default function Login() {
         body: JSON.stringify({ email, password }),
       });
       auth.set(token, user);
-      navigate('/customers');
+      navigate(user.role === 'technician' ? '/myday' : '/customers');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

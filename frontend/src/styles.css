@@ -180,3 +180,30 @@ dialog.modal input, dialog.modal select, dialog.modal textarea {
 }
 dialog.modal .row { display: flex; gap: 8px; }
 dialog.modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+
+/* Inline forms inside detail panels */
+.detail input, .detail select, .detail textarea {
+  border: 1px solid var(--border2); border-radius: 6px; padding: 6px 8px; font: inherit;
+}
+
+/* ── Invoice detail ─────────────────────────────────────────────────────── */
+.invoice-head { display: flex; justify-content: space-between; align-items: start; }
+.totals { margin-top: 8px; margin-left: auto; width: 240px; }
+.totals > div { display: flex; justify-content: space-between; padding: 2px 0; }
+.totals .grand { border-top: 2px solid var(--navy); font-weight: 700; margin-top: 4px; padding-top: 4px; }
+.print-only { display: none; }
+
+@media print {
+  .no-print, .topbar, .master, .toolbar { display: none !important; }
+  .print-only { display: inline; }
+  .page, .split { display: block; padding: 0; }
+  .detail.panel { max-width: none; border: 0; }
+  body { background: #fff; }
+}
+
+/* ── Tech "My Day" (phone-first) ────────────────────────────────────────── */
+.myday { max-width: 560px; margin: 0 auto; width: 100%; overflow-y: auto; }
+.myday-card { padding: 12px 14px; margin-bottom: 4px; cursor: default; font-size: 14px; }
+.myday-card:hover { box-shadow: none; }
+button.big, a.big { padding: 10px 16px; font-size: 15px; border-radius: 8px; }
+.myday a { color: var(--navy); font-weight: 600; }

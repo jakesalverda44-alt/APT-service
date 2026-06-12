@@ -8,11 +8,31 @@ company's Supabase Postgres database (and logins) with the sales CRM
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
+## Features (ESC equivalents)
+
+| Screen | ESC equivalent | Notes |
+|---|---|---|
+| Customer Center | Customer Center | Search grid + detail panel; locations, equipment, agreements, job/invoice history; New Job / Edit / Add Location / Add Equipment |
+| Dispatch Board | Dispatch Board | Tech columns + "To Schedule" tray; color-coded cards; click to advance status, drag to reassign; Block Time Off (non-customer time) |
+| Jobs | Dispatch List | Filterable grid; append-only note timeline; parts & labor lines; Mark Complete → Create Invoice |
+| Agreements | Agreement List | Type codes, plan tiers, visit counters (major/minor), tasks with checklists & next-due dates, Renew, on-demand PM generation |
+| Invoices | Invoicing/Receivables | Created from jobs; tax/terms; payments with partial/paid status; printable; QBO sync fields ready |
+| Intake | — (new) | Awarded CRM projects arrive automatically; Accept → service job |
+| Import | — (new) | Upload ESC Customer List Report PDFs from the browser; idempotent |
+| My Day | ESC Mobile Tech | Phone-first tech view: my dispatches, advance status with time in/out, directions, call links, field notes |
+
+The PM scheduler runs at startup and every 12 hours (and on demand from the
+Agreements page): agreement tasks within 14 days of due generate `pm` jobs into
+the board's tray; completing one advances the task and decrements the
+agreement's visits-remaining counter.
+
 ## Layout
 
 ```
-database/   service-schema migrations + migrate.sh runner
-tools/      ESC data importers (see tools/import)
+backend/    Express 5 + pg API; serves built frontend in production
+frontend/   React + Vite (light ESC-style theme, APT navy/gold)
+database/   service-schema migrations (auto-applied at boot) + migrate.sh
+tools/      offline ESC importer (same parser ships in-app under /import)
 docs/       architecture plan
 ```
 

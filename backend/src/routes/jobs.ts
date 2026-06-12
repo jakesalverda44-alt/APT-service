@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db';
 import { requireAuth, AuthRequest } from '../auth';
+import { onPmJobComplete } from '../pm';
 
 const router = Router();
 router.use(requireAuth);
@@ -79,10 +80,32 @@ router.patch('/:id', async (req, res) => {
   if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
   if (req.body.status === 'complete') sets.push('completed_at = now()');
   params.push(req.params.id);
+  const before = (await pool.query('SELECT status FROM service.jobs WHERE id = $1', [req.params.id])).rows[0];
   const { rows } = await pool.query(
     `UPDATE service.jobs SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`, params);
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+  // ESC behavior: completing an agreement PM advances the task's next-due
+  // date and decrements the plan's visits-remaining counter.
+  if (req.body.status === 'complete' && before?.status !== 'complete' && rows[0].type === 'pm') {
+    await onPmJobComplete(rows[0]);
+  }
   res.json(rows[0]);
+});
+
+// Parts & labor lines (feed the invoice).
+router.post('/:id/lines', async (req, res) => {
+  const { kind, description, qty, unit_cost, unit_price, taxable } = req.body || {};
+  if (!description) return res.status(400).json({ error: 'Description required' });
+  const { rows } = await pool.query(
+    `INSERT INTO service.job_lines (job_id, kind, description, qty, unit_cost, unit_price, taxable)
+     VALUES ($1,COALESCE($2,'part'),$3,COALESCE($4::numeric,1),$5::numeric,COALESCE($6::numeric,0),COALESCE($7,true)) RETURNING *`,
+    [req.params.id, kind, description, qty, unit_cost, unit_price, taxable]);
+  res.status(201).json(rows[0]);
+});
+
+router.delete('/lines/:lineId', async (req, res) => {
+  await pool.query('DELETE FROM service.job_lines WHERE id = $1', [req.params.lineId]);
+  res.json({ ok: true });
 });
 
 // Append-only note timeline (ESC dispatch-notes behavior — no edit, no delete).

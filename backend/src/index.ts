@@ -9,6 +9,7 @@ import dispatchRoutes from './routes/dispatches';
 import agreementRoutes from './routes/agreements';
 import intakeRoutes from './routes/intake';
 import importRoutes from './routes/import';
+import invoiceRoutes from './routes/invoices';
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ app.use('/api/dispatches', dispatchRoutes);
 app.use('/api/agreements', agreementRoutes);
 app.use('/api/intake', intakeRoutes);
 app.use('/api/import', importRoutes);
+app.use('/api/invoices', invoiceRoutes);
 
 // In production the built frontend is served from the same process.
 const frontendDist = path.join(__dirname, '../../frontend/dist');
@@ -42,6 +44,17 @@ async function start() {
   if (process.env.AUTO_MIGRATE !== 'false') {
     const { runMigrations } = await import('./migrate');
     await runMigrations();
+  }
+  // PM scheduler: generate upcoming preventive-maintenance jobs on boot and
+  // twice a day thereafter (also runnable on demand from the Agreements page).
+  if (process.env.DISABLE_PM_CRON !== 'true') {
+    const { generatePmJobs } = await import('./pm');
+    const run = () =>
+      generatePmJobs()
+        .then((n) => n && console.log(`pm scheduler: created ${n} job(s)`))
+        .catch((err) => console.error('pm scheduler failed:', err));
+    run();
+    setInterval(run, 12 * 60 * 60 * 1000);
   }
   app.listen(port, () => console.log(`apt-service backend on :${port}`));
 }

@@ -78,6 +78,54 @@ router.post('/', async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
+router.patch('/:id', async (req, res) => {
+  const allowed = ['name', 'billing_address1', 'billing_address2', 'billing_city', 'billing_state',
+                   'billing_zip', 'email', 'credit_terms', 'status', 'notes', 'phones'];
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  for (const f of allowed) {
+    if (f in (req.body || {})) {
+      params.push(f === 'phones' ? JSON.stringify(req.body[f]) : req.body[f]);
+      sets.push(`${f} = $${params.length}`);
+    }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+  params.push(req.params.id);
+  const { rows } = await pool.query(
+    `UPDATE service.customers SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`, params);
+  if (!rows[0]) return res.status(404).json({ error: 'Customer not found' });
+  res.json(rows[0]);
+});
+
+router.patch('/locations/:locId', async (req, res) => {
+  const allowed = ['name', 'address1', 'address2', 'city', 'state', 'zip', 'access_notes',
+                   'contact_name', 'email', 'tax_code', 'status', 'notes', 'phones'];
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  for (const f of allowed) {
+    if (f in (req.body || {})) {
+      params.push(f === 'phones' ? JSON.stringify(req.body[f]) : req.body[f]);
+      sets.push(`${f} = $${params.length}`);
+    }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+  params.push(req.params.locId);
+  const { rows } = await pool.query(
+    `UPDATE service.locations SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`, params);
+  if (!rows[0]) return res.status(404).json({ error: 'Location not found' });
+  res.json(rows[0]);
+});
+
+router.post('/locations/:locId/equipment', async (req, res) => {
+  const { kind, manufacturer, model, serial, kw, fuel, install_date, warranty_expires, notes } = req.body || {};
+  const { rows } = await pool.query(
+    `INSERT INTO service.equipment (location_id, kind, manufacturer, model, serial, kw, fuel,
+                                    install_date, warranty_expires, notes)
+     VALUES ($1,COALESCE($2,'generator'),$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [req.params.locId, kind, manufacturer, model, serial, kw, fuel, install_date, warranty_expires, notes]);
+  res.status(201).json(rows[0]);
+});
+
 router.post('/:id/locations', async (req, res) => {
   const { name, address1, address2, city, state, zip, access_notes, contact_name, phones, email } = req.body || {};
   const { rows } = await pool.query(

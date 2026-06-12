@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 
 interface Row {
@@ -42,6 +43,8 @@ export default function CustomerCenter() {
   const [rows, setRows] = useState<Row[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [modal, setModal] = useState<'job' | 'edit' | 'location' | 'equipment' | 'customer' | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -50,10 +53,64 @@ export default function CustomerCenter() {
     return () => clearTimeout(t);
   }, [q]);
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     if (!selected) return setDetail(null);
     api<Detail>(`/api/customers/${selected}`).then(setDetail).catch(() => setDetail(null));
   }, [selected]);
+  useEffect(refresh, [refresh]);
+
+  async function submitModal(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const get = (k: string) => (f.get(k) as string) || null;
+    if (modal === 'customer') {
+      const created = await api<{ id: string }>('/api/customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: get('name'), billing_address1: get('address1'), billing_city: get('city'),
+          billing_state: get('state'), billing_zip: get('zip'), email: get('email'),
+          phones: get('phone') ? { phone: get('phone') } : {},
+        }),
+      });
+      setSelected(created.id);
+      setQ(get('name') || '');
+    } else if (modal === 'job' && detail) {
+      await api('/api/jobs', {
+        method: 'POST',
+        body: JSON.stringify({
+          customer_id: detail.id, location_id: get('location_id'),
+          type: get('type'), priority: get('priority'), summary: get('summary'),
+        }),
+      });
+      navigate('/board');
+    } else if (modal === 'edit' && detail) {
+      await api(`/api/customers/${detail.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: get('name'), billing_address1: get('address1'), billing_city: get('city'),
+          billing_state: get('state'), billing_zip: get('zip'), email: get('email'),
+        }),
+      });
+    } else if (modal === 'location' && detail) {
+      await api(`/api/customers/${detail.id}/locations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: get('name'), address1: get('address1'), city: get('city'),
+          state: get('state'), zip: get('zip'), access_notes: get('access_notes'),
+        }),
+      });
+    } else if (modal === 'equipment' && detail) {
+      await api(`/api/customers/locations/${get('location_id')}/equipment`, {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: get('kind'), manufacturer: get('manufacturer'), model: get('model'),
+          serial: get('serial'), kw: Number(get('kw')) || null, fuel: get('fuel') || null,
+        }),
+      });
+    }
+    setModal(null);
+    refresh();
+  }
 
   return (
     <div className="page">
@@ -65,6 +122,7 @@ export default function CustomerCenter() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        <button className="primary" onClick={() => setModal('customer')}>New Customer</button>
         <span className="muted">{rows.length} rows</span>
       </div>
       <div className="split">
@@ -107,6 +165,13 @@ export default function CustomerCenter() {
                 <span className="k">Email</span><span>{detail.email || '—'}</span>
               </div>
               {detail.notes && <div className="muted" style={{ marginTop: 8 }}>{detail.notes}</div>}
+
+              <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                <button className="primary" onClick={() => setModal('job')}>New Job</button>
+                <button className="ghost" onClick={() => setModal('edit')}>Edit</button>
+                <button className="ghost" onClick={() => setModal('location')}>Add Location</button>
+                <button className="ghost" onClick={() => setModal('equipment')}>Add Equipment</button>
+              </div>
 
               <section>
                 <h3>Locations ({detail.locations.length})</h3>
@@ -160,6 +225,93 @@ export default function CustomerCenter() {
           )}
         </div>
       </div>
+
+      {modal && (
+        <dialog className="modal" open>
+          <h2>
+            {modal === 'customer' && 'New Customer'}
+            {modal === 'job' && `New Job — ${detail?.name}`}
+            {modal === 'edit' && 'Edit Customer'}
+            {modal === 'location' && 'Add Location'}
+            {modal === 'equipment' && 'Add Equipment'}
+          </h2>
+          <form onSubmit={submitModal}>
+            {(modal === 'customer' || modal === 'edit') && (
+              <>
+                <input name="name" placeholder="Name" required defaultValue={modal === 'edit' ? detail?.name : ''} />
+                <input name="address1" placeholder="Billing address" defaultValue={modal === 'edit' ? detail?.billing_address1 || '' : ''} />
+                <div className="row">
+                  <input name="city" placeholder="City" style={{ flex: 2 }} defaultValue={modal === 'edit' ? detail?.billing_city || '' : ''} />
+                  <input name="state" placeholder="ST" style={{ flex: 1 }} defaultValue={modal === 'edit' ? detail?.billing_state || 'FL' : 'FL'} />
+                  <input name="zip" placeholder="ZIP" style={{ flex: 1 }} defaultValue={modal === 'edit' ? detail?.billing_zip || '' : ''} />
+                </div>
+                <input name="email" type="email" placeholder="Email" defaultValue={modal === 'edit' ? detail?.email || '' : ''} />
+                {modal === 'customer' && <input name="phone" placeholder="Phone" />}
+              </>
+            )}
+            {modal === 'job' && (
+              <>
+                <select name="location_id" required>
+                  {detail?.locations.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name || l.address1 || 'Location'}</option>
+                  ))}
+                </select>
+                <div className="row">
+                  <select name="type" style={{ flex: 1 }}>
+                    {['repair', 'pm', 'install', 'warranty', 'callback', 'project'].map((t) => <option key={t}>{t}</option>)}
+                  </select>
+                  <select name="priority" style={{ flex: 1 }}>
+                    {['normal', 'high', 'emergency', 'low'].map((p) => <option key={p}>{p}</option>)}
+                  </select>
+                </div>
+                <textarea name="summary" placeholder="Problem / work description" rows={3} required />
+              </>
+            )}
+            {modal === 'location' && (
+              <>
+                <input name="name" placeholder="Location name" />
+                <input name="address1" placeholder="Address" required />
+                <div className="row">
+                  <input name="city" placeholder="City" style={{ flex: 2 }} />
+                  <input name="state" placeholder="ST" style={{ flex: 1 }} defaultValue="FL" />
+                  <input name="zip" placeholder="ZIP" style={{ flex: 1 }} />
+                </div>
+                <input name="access_notes" placeholder="Gate code / access notes" />
+              </>
+            )}
+            {modal === 'equipment' && (
+              <>
+                <select name="location_id" required>
+                  {detail?.locations.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name || l.address1 || 'Location'}</option>
+                  ))}
+                </select>
+                <div className="row">
+                  <select name="kind" style={{ flex: 1 }}>
+                    {['generator', 'ats', 'panel', 'pump', 'other'].map((k) => <option key={k}>{k}</option>)}
+                  </select>
+                  <select name="fuel" style={{ flex: 1 }}>
+                    <option value="">fuel…</option>
+                    {['natural_gas', 'propane', 'diesel', 'gasoline', 'other'].map((fu) => <option key={fu}>{fu}</option>)}
+                  </select>
+                </div>
+                <div className="row">
+                  <input name="manufacturer" placeholder="Manufacturer" style={{ flex: 1 }} />
+                  <input name="model" placeholder="Model" style={{ flex: 1 }} />
+                </div>
+                <div className="row">
+                  <input name="serial" placeholder="Serial #" style={{ flex: 2 }} />
+                  <input name="kw" type="number" step="0.5" placeholder="kW" style={{ flex: 1 }} />
+                </div>
+              </>
+            )}
+            <div className="actions">
+              <button type="button" className="ghost" onClick={() => setModal(null)}>Cancel</button>
+              <button className="primary">Save</button>
+            </div>
+          </form>
+        </dialog>
+      )}
     </div>
   );
 }

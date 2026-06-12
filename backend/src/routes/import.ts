@@ -3,9 +3,30 @@ import express from 'express';
 import { pool } from '../db';
 import { requireAuth, requireOffice } from '../auth';
 import { parseEscCustomerList } from '../escParser';
+import { importEscCsv } from '../escCsv';
 
 const router = Router();
 router.use(requireAuth, requireOffice);
+
+// Upload one CSV from the ESC SQL-Server export (table auto-detected from the
+// header). Idempotent: rows upsert on their ESC numbers. Upload order:
+// customers, locations, agreements, recurrence, tasks, equipment — but any
+// order works; rows whose parents are missing are reported and can be re-run.
+router.post(
+  '/esc-csv',
+  express.text({ type: ['text/csv', 'text/plain', 'application/octet-stream'], limit: '80mb' }),
+  async (req, res) => {
+    if (typeof req.body !== 'string' || req.body.length < 10) {
+      return res.status(400).json({ error: 'Upload the CSV file as the request body' });
+    }
+    try {
+      const outcome = await importEscCsv(String(req.query.filename || 'upload.csv'), req.body);
+      res.json(outcome);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  }
+);
 
 // Upload an ESC "Customer List Report" PDF. Parses, stages into import_rows,
 // normalizes into customers/locations (idempotent upserts on ESC numbers),

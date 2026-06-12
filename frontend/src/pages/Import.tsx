@@ -13,10 +13,22 @@ interface Batch {
   stats: Record<string, unknown>; created_at: string;
 }
 
+interface CsvOutcome { table: string; imported: number; errors: { row: number; key: string; error: string }[] }
+
+// Dependency order for the SQL export — files are sorted this way before upload.
+const CSV_ORDER = ['customers', 'locations', 'agreements', 'recurrence', 'tasks', 'equipment'];
+const orderOf = (name: string) => {
+  const i = CSV_ORDER.findIndex((k) => name.toLowerCase().includes(k));
+  return i === -1 ? CSV_ORDER.length : i;
+};
+
 export default function Import() {
   const fileRef = useRef<HTMLInputElement>(null);
+  const csvRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [csvBusy, setCsvBusy] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [csvResults, setCsvResults] = useState<{ file: string; outcome?: CsvOutcome; error?: string }[]>([]);
   const [error, setError] = useState('');
   const [batches, setBatches] = useState<Batch[]>([]);
 
@@ -49,14 +61,83 @@ export default function Import() {
     }
   }
 
+  async function uploadCsvs() {
+    const files = Array.from(csvRef.current?.files || []);
+    if (!files.length) return setError('Choose the ESC export CSV files first.');
+    setCsvBusy(true);
+    setError('');
+    setCsvResults([]);
+    const sorted = files.sort((a, b) => orderOf(a.name) - orderOf(b.name));
+    const results: { file: string; outcome?: CsvOutcome; error?: string }[] = [];
+    for (const file of sorted) {
+      try {
+        const res = await fetch(`/api/import/esc-csv?filename=${encodeURIComponent(file.name)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/csv', Authorization: `Bearer ${auth.token}` },
+          body: file,
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Import failed');
+        results.push({ file: file.name, outcome: body as CsvOutcome });
+      } catch (err) {
+        results.push({ file: file.name, error: err instanceof Error ? err.message : 'failed' });
+      }
+      setCsvResults([...results]);
+    }
+    setCsvBusy(false);
+    loadBatches();
+  }
+
   return (
     <div className="page">
       <div className="toolbar"><h1>Import from ESC</h1></div>
+
       <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: '0 0 6px' }}>ESC database export (CSV files)</h3>
         <p style={{ marginTop: 0 }}>
-          Upload an ESC <strong>Customer List Report</strong> PDF (run it from ESC's report menu —
-          any ZIP range, active customers). Safe to re-upload or overlap reports: existing
-          customers are updated by their ESC account number, never duplicated.
+          Select the CSV files from the full ESC export (customers, locations, agreements,
+          agreement_recurrence, agreement_tasks, equipment). The file type is detected
+          automatically and uploads run in the right order. Safe to re-upload — records
+          update by their ESC numbers, never duplicate.
+        </p>
+        <div className="toolbar">
+          <input type="file" accept=".csv,text/csv" multiple ref={csvRef} />
+          <button className="primary" disabled={csvBusy} onClick={uploadCsvs}>
+            {csvBusy ? 'Importing…' : 'Upload & Import All'}
+          </button>
+        </div>
+        {csvResults.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            {csvResults.map((r) => (
+              <div key={r.file} style={{ marginBottom: 4 }}>
+                {r.error ? (
+                  <span className="error">{r.file}: {r.error}</span>
+                ) : (
+                  <>
+                    <span className={`chip ${r.outcome!.errors.length ? 'pending' : 'complete'}`}>
+                      {r.outcome!.table.replace('esc_', '')}: {r.outcome!.imported} imported
+                      {r.outcome!.errors.length ? `, ${r.outcome!.errors.length}+ issues` : ''}
+                    </span>{' '}
+                    <span className="muted">{r.file}</span>
+                    {r.outcome!.errors.slice(0, 3).map((e, i) => (
+                      <div key={i} className="error" style={{ fontSize: 12 }}>
+                        row {e.row} ({e.key}): {e.error}
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="panel" style={{ padding: 16 }}>
+        <h3 style={{ margin: '0 0 6px' }}>Customer List Report (PDF)</h3>
+        <p style={{ marginTop: 0 }}>
+          Alternative path: upload an ESC <strong>Customer List Report</strong> PDF. Safe to
+          re-upload or overlap reports: existing customers are updated by their ESC account
+          number, never duplicated.
         </p>
         <div className="toolbar">
           <input type="file" accept="application/pdf,.pdf" ref={fileRef} />

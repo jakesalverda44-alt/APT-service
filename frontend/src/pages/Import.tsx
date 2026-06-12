@@ -232,9 +232,11 @@ export default function Import() {
                 <td>{b.filename}</td>
                 <td className="muted">{b.filters || '—'}</td>
                 <td className="muted">
-                  {['customers_imported', 'locations_imported'].map((k) =>
-                    b.stats?.[k] != null ? `${String(b.stats[k])} ${k.replace('_imported', 's')} ` : ''
-                  )}
+                  {b.stats?.imported != null
+                    ? `${Number(b.stats.imported).toLocaleString()} imported${Number(b.stats.errors) ? `, ${b.stats.errors} issues` : ''}`
+                    : ['customers_imported', 'locations_imported'].map((k) =>
+                        b.stats?.[k] != null ? `${String(b.stats[k])} ${k.replace('_imported', 's')} ` : ''
+                      )}
                 </td>
               </tr>
             ))}

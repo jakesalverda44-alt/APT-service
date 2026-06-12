@@ -4,9 +4,23 @@ import { pool } from '../db';
 import { requireAuth, requireOffice } from '../auth';
 import { parseEscCustomerList } from '../escParser';
 import { importEscCsv } from '../escCsv';
+import { AuthRequest } from '../auth';
 
 const router = Router();
-router.use(requireAuth, requireOffice);
+
+// The nightly ESC sync (Windows scheduled task on the ESC server) pushes CSVs
+// with a long-lived key instead of a 12h user token. Office users keep using
+// the normal login path.
+function apiKeyOrOffice(req: AuthRequest, res: Parameters<typeof requireOffice>[1], next: () => void) {
+  const key = process.env.IMPORT_API_KEY;
+  if (key && req.headers['x-api-key'] === key) return next();
+  requireAuth(req, res, () => requireOffice(req, res, next));
+}
+
+router.use((req, res, next) => {
+  if (req.path === '/esc-csv') return next();   // guarded per-route below
+  requireAuth(req as AuthRequest, res, () => requireOffice(req as AuthRequest, res, next));
+});
 
 // Upload one CSV from the ESC SQL-Server export (table auto-detected from the
 // header). Idempotent: rows upsert on their ESC numbers. Upload order:
@@ -14,6 +28,7 @@ router.use(requireAuth, requireOffice);
 // order works; rows whose parents are missing are reported and can be re-run.
 router.post(
   '/esc-csv',
+  apiKeyOrOffice,
   express.text({ type: ['text/csv', 'text/plain', 'application/octet-stream'], limit: '80mb' }),
   async (req, res) => {
     if (typeof req.body !== 'string' || req.body.length < 10) {

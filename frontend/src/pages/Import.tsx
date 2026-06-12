@@ -123,7 +123,8 @@ export default function Import() {
           if (chunks.length > 1) {
             setCsvResults([...results, { file: `${file.name} — uploading part ${i + 1} of ${chunks.length}` }]);
           }
-          const part = await postCsvChunk(file.name, chunks[i]);
+          const partName = chunks.length > 1 ? `${file.name} (part ${i + 1}/${chunks.length})` : file.name;
+          const part = await postCsvChunk(partName, chunks[i]);
           total.table = part.table;
           total.imported += part.imported;
           total.errors.push(...part.errors.slice(0, 5));

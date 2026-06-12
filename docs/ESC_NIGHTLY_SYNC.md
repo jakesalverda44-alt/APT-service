@@ -30,6 +30,14 @@ and invoices append. Nothing duplicates.
    }
    ```
    (Order matters on the FIRST run only; after that any order works.)
+
+   **Large tables must be exported in parts** (the app server rejects giant
+   single requests): write `dispatches.csv` and `dispatch_notes.csv` as
+   numbered part files of ≤15,000 rows each — `dispatches_001.csv`,
+   `dispatches_002.csv`, … Each part repeats the header row. The importer
+   detects the table from the header, so filenames don't matter; just POST
+   every part. (The browser Import screen does this splitting automatically —
+   this note is only for the scripted sync.)
 3. **Task Scheduler:** run export + upload nightly (e.g. 2:00 AM), as a user
    with read access to the SQL instance. Log output to a file.
 

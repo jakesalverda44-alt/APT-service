@@ -110,13 +110,17 @@ function planFromTask(code: string): string | null {
   return null;
 }
 
+/**
+ * ESC's ContrPer is the contract TERM ("1 Year", "3 Year"), not a billing
+ * frequency — the term is already captured by the contract/expiration dates.
+ * Only explicitly periodic values map to a billing frequency.
+ */
 function billingFreq(contrPer: string): string | null {
   const p = contrPer.toLowerCase();
-  if (!p) return null;
-  if (/year|annual/.test(p)) return 'annual';
+  if (/^1\s*year|^annual/.test(p)) return 'annual';
   if (/6\s*month|semi/.test(p)) return 'semiannual';
   if (/3\s*month|quarter/.test(p)) return 'quarterly';
-  if (/month/.test(p)) return 'monthly';
+  if (/^1\s*month|^monthly/.test(p)) return 'monthly';
   return null;
 }
 
@@ -252,6 +256,8 @@ export async function importEscTable(
       const expired = r.ExpireDate && dateOf(r.ExpireDate)! < new Date().toISOString().slice(0, 10);
       const status = isInactive(r.SAInactive) ? (expired ? 'expired' : 'cancelled')
         : expired ? 'expired' : 'active';
+      const notes = [r.Notes, r.ContrPer && !/^1\s*year/i.test(r.ContrPer) ? `Term: ${r.ContrPer}` : null]
+        .filter(Boolean).join('\n') || null;
       await client.query(
         `INSERT INTO service.agreements (esc_agreement_no, customer_id, location_id, type_code,
            plan_name, billing_freq, price, original_contract_date, last_renewal_date, expires_on,
@@ -272,7 +278,7 @@ export async function importEscTable(
         [r.AgrmtNo, customerId, locations.get(`${r.CustNo}|${r.LocNo}`) || null,
          r.AgrmtType || null, r.JobClass || null, billingFreq(r.ContrPer || ''),
          numOf(r.ContrAmt), dateOf(r.OrigContr), dateOf(r.RenewDate), dateOf(r.ExpireDate),
-         status, r.Notes || null]);
+         status, notes]);
       out.imported++;
     }
     // Late-bind: equipment rows staged earlier that referenced these agreements.
@@ -331,7 +337,9 @@ export async function importEscTable(
            interval_months = COALESCE(EXCLUDED.interval_months, service.agreement_tasks.interval_months),
            next_due_on = COALESCE(EXCLUDED.next_due_on, service.agreement_tasks.next_due_on),
            checklist = EXCLUDED.checklist`,
-        [agreementId, `${r.Counter || i}-${r.Task}`, r.MasterTask || r.Task, kind,
+        // Task is the row's own code (component sections like "IN ENG");
+        // MasterTask is the parent visit code — wrong as a section name.
+        [agreementId, `${r.Counter || i}-${r.Task}`, r.Task || r.MasterTask, kind,
          intervalMonths, nextDue, JSON.stringify(checklist)]);
       const plan = planFromTask(`${r.MasterTask} ${r.Task}`);
       if (plan) {

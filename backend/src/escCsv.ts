@@ -64,7 +64,11 @@ const FINGERPRINTS: [string, string[]][] = [
   ['esc_agreement_tasks', ['AgrmtNo', 'Task', 'Level', 'LongDesc']],
   ['esc_recurrence',  ['TransID', 'RecurType', 'NextDate']],
   ['esc_equipment',   ['CustNo', 'LocNo', 'Mfg', 'Serial', 'EqType']],
+  ['esc_dispatches',  ['CustNo', 'LocNo', 'Dispatch', 'RecDate', 'Priority']],
 ];
+
+// High-volume tables we don't stage into import_rows (no cross-file joins need them).
+const NO_STAGE = new Set(['esc_dispatches']);
 
 export function detectTable(headers: string[]): string | null {
   const set = new Set(headers);
@@ -142,6 +146,23 @@ function extractKw(...fields: (string | undefined)[]): number | null {
     if (m) return Number(m[1]);
   }
   return null;
+}
+
+// Map an ESC dispatch to a service job type from its priority / agreement link.
+function dispatchType(priority: string, hasAgreement: boolean): string {
+  const p = priority.toUpperCase();
+  if (/INSTAL/.test(p)) return 'install';
+  if (/STRTUP|START/.test(p)) return 'install';
+  if (/WARR/.test(p)) return 'warranty';
+  if (/SER\s*A|PM|MAINT/.test(p) || hasAgreement) return 'pm';
+  if (/CALL\s*BACK|CALLBACK/.test(p)) return 'callback';
+  return 'repair';
+}
+
+function summaryFromNotes(notes: string, dispatchNo: string): string {
+  const firstLine = (notes || '').split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+  if (!firstLine) return `ESC dispatch ${dispatchNo}`;
+  return firstLine.length > 140 ? firstLine.slice(0, 140) + '…' : firstLine;
 }
 
 function equipKind(eqType: string, model: string): string {
@@ -401,12 +422,61 @@ export async function importEscTable(
       }
       out.imported++;
     }
+  } else if (table === 'esc_dispatches') {
+    const customers = await customerMap(client);
+    const locations = await locationMap(client);
+    const agreements = await agreementMap(client);
+    const CHUNK = 400;
+    for (let i = 0; i < records.length; i += CHUNK) {
+      const slice = records.slice(i, i + CHUNK);
+      const values: string[] = [];
+      const params: unknown[] = [];
+      for (const r of slice) {
+        if (!r.Dispatch || !r.CustNo) continue;
+        const customerId = customers.get(r.CustNo);
+        if (!customerId) { fail(i, r.Dispatch, `customer ${r.CustNo} not imported`); continue; }
+        const escDispatchNo = r.Dispatch;
+        const p = (params.length);
+        params.push(
+          escDispatchNo,                                            // esc_dispatch_no
+          customerId,                                               // customer_id
+          locations.get(`${r.CustNo}|${r.LocNo}`) || null,          // location_id
+          r.ServAgrNum ? agreements.get(r.ServAgrNum) || null : null, // agreement_id
+          r.ServAgrNum || null,                                     // esc_agreement_no
+          dispatchType(r.Priority || '', !!r.ServAgrNum),           // type
+          r.Priority || null,                                       // priority
+          dateOf(r.RecDate),                                        // received_date
+          dateOf(r.Complete),                                       // completed_date
+          r.Invoice || null,                                        // invoice_no
+          summaryFromNotes(r.Notes || '', escDispatchNo),           // summary
+          r.Notes || null                                           // notes
+        );
+        values.push(`($${p + 1},$${p + 2},$${p + 3},$${p + 4},$${p + 5},$${p + 6},$${p + 7},$${p + 8}::date,$${p + 9}::date,$${p + 10},$${p + 11},$${p + 12})`);
+      }
+      if (!values.length) continue;
+      await client.query(
+        `INSERT INTO service.dispatch_history
+           (esc_dispatch_no, customer_id, location_id, agreement_id, esc_agreement_no,
+            type, priority, received_date, completed_date, invoice_no, summary, notes)
+         VALUES ${values.join(',')}
+         ON CONFLICT (esc_dispatch_no) DO UPDATE SET
+           customer_id = EXCLUDED.customer_id,
+           location_id = COALESCE(EXCLUDED.location_id, service.dispatch_history.location_id),
+           agreement_id = COALESCE(EXCLUDED.agreement_id, service.dispatch_history.agreement_id),
+           esc_agreement_no = EXCLUDED.esc_agreement_no,
+           type = EXCLUDED.type, priority = EXCLUDED.priority,
+           received_date = EXCLUDED.received_date, completed_date = EXCLUDED.completed_date,
+           invoice_no = EXCLUDED.invoice_no, summary = EXCLUDED.summary, notes = EXCLUDED.notes`,
+        params);
+      out.imported += values.length;
+    }
+
   } else {
     throw new Error(`Unknown table: ${table}`);
   }
 
-  // Stage the raw rows for cross-file joins and auditability.
-  if (records.length) {
+  // Stage the raw rows for cross-file joins and auditability (skip high-volume).
+  if (records.length && !NO_STAGE.has(table)) {
     const CHUNK = 500;
     for (let i = 0; i < records.length; i += CHUNK) {
       const slice = records.slice(i, i + CHUNK);

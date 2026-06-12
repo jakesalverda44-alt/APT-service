@@ -37,6 +37,34 @@ interface Detail {
   recent_jobs: { id: string; number: number; type: string; status: string; summary: string | null; created_at: string }[];
   recent_invoices: { id: string; number: number; status: string; total: string; balance_due: string; issued_on: string | null }[];
   recent_quotes: { id: string; number: number; status: string; summary: string | null; total: string; created_at: string }[];
+  dispatch_history: {
+    id: string; esc_dispatch_no: string; type: string; priority: string | null;
+    received_date: string | null; completed_date: string | null;
+    invoice_no: string | null; summary: string | null; location_name: string | null;
+  }[];
+}
+
+function DispatchRow({ d }: { d: Detail['dispatch_history'][number] }) {
+  const [open, setOpen] = useState(false);
+  const [full, setFull] = useState<string | null>(null);
+  async function toggle() {
+    if (!open && full === null) {
+      const r = await api<{ notes: string | null }>(`/api/customers/dispatch/${d.id}`).catch(() => ({ notes: null }));
+      setFull(r.notes || '(no notes recorded)');
+    }
+    setOpen(!open);
+  }
+  return (
+    <div className="dh-row" onClick={toggle}>
+      <div>
+        <span className="chip outline">{d.type}</span>{' '}
+        <span className="muted">{fmtDate(d.received_date)}</span> {d.summary}
+        {d.location_name && <span className="muted"> · {d.location_name}</span>}
+        {d.invoice_no && <span className="muted"> · inv {d.invoice_no}</span>}
+      </div>
+      {open && <div className="dh-notes">{full}</div>}
+    </div>
+  );
 }
 
 const phoneList = (phones: Record<string, string>) =>
@@ -256,6 +284,12 @@ export default function CustomerCenter() {
                     #{j.number} {j.type} — {j.summary || '—'} <span className="muted">{fmtDate(j.created_at)}</span>
                   </div>
                 ))}
+              </section>
+
+              <section>
+                <h3>Service History {detail.dispatch_history.length > 0 && `(${detail.dispatch_history.length} most recent)`}</h3>
+                {detail.dispatch_history.length === 0 && <div className="muted">No dispatch history imported yet.</div>}
+                {detail.dispatch_history.map((d) => <DispatchRow key={d.id} d={d} />)}
               </section>
 
               <section>

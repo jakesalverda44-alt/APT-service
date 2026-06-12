@@ -53,7 +53,7 @@ router.get('/:id', async (req, res) => {
   const { id } = req.params;
   const customer = (await pool.query('SELECT * FROM service.customers WHERE id = $1', [id])).rows[0];
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
-  const [locations, agreements, jobs, invoices, quotes] = await Promise.all([
+  const [locations, agreements, jobs, invoices, quotes, history] = await Promise.all([
     pool.query(
       `SELECT l.*,
               COALESCE(json_agg(e.* ORDER BY e.created_at) FILTER (WHERE e.id IS NOT NULL), '[]') AS equipment
@@ -76,6 +76,13 @@ router.get('/:id', async (req, res) => {
                         WHERE ql.quote_id = qt.id), 0) + qt.tax AS total
        FROM service.quotes qt WHERE qt.customer_id = $1
        ORDER BY qt.created_at DESC LIMIT 10`, [id]),
+    pool.query(
+      `SELECT dh.id, dh.esc_dispatch_no, dh.type, dh.priority, dh.received_date,
+              dh.completed_date, dh.invoice_no, dh.summary, l.name AS location_name
+       FROM service.dispatch_history dh
+       LEFT JOIN service.locations l ON l.id = dh.location_id
+       WHERE dh.customer_id = $1
+       ORDER BY dh.received_date DESC NULLS LAST LIMIT 25`, [id]),
   ]);
   res.json({
     ...customer,
@@ -84,7 +91,18 @@ router.get('/:id', async (req, res) => {
     recent_jobs: jobs.rows,
     recent_invoices: invoices.rows,
     recent_quotes: quotes.rows,
+    dispatch_history: history.rows,
   });
+});
+
+// Full detail of one historical ESC dispatch (the note text, expanded on click).
+router.get('/dispatch/:dispatchId', async (req, res) => {
+  const row = (await pool.query(
+    `SELECT dh.*, l.name AS location_name FROM service.dispatch_history dh
+     LEFT JOIN service.locations l ON l.id = dh.location_id WHERE dh.id = $1`,
+    [req.params.dispatchId])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  res.json(row);
 });
 
 router.post('/', async (req, res) => {

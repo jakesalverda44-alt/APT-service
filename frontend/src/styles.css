@@ -97,6 +97,8 @@ table.grid th {
 table.grid td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
 table.grid tr:hover td { background: var(--navy-soft); cursor: pointer; }
 table.grid tr.selected td { background: var(--gold-soft); }
+/* ESC-style grouped rows: continuation rows of the same customer */
+table.grid td.group-cont { border-bottom-color: transparent; }
 .scroll { overflow: auto; min-height: 0; }
 
 /* ── Master/detail split (Customer Center) ──────────────────────────────── */

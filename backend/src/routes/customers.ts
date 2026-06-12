@@ -112,6 +112,53 @@ router.get('/:id', async (req, res) => {
   });
 });
 
+// ESC-style location panel: clicking a grid row selects THAT location, and the
+// panel shows its contact, notes, equipment, maintenance schedule, and history
+// scoped to the location (plus the customer header for billing/balance).
+router.get('/location/:locId', async (req, res) => {
+  const { locId } = req.params;
+  const location = (await pool.query(
+    'SELECT * FROM service.locations WHERE id = $1', [locId])).rows[0];
+  if (!location) return res.status(404).json({ error: 'Location not found' });
+  const [customer, ar, equipment, agreements, history, invHistory, quotes, jobs] = await Promise.all([
+    pool.query('SELECT id, name, esc_account_no, billing_address1, billing_city, billing_state, billing_zip, phones, email, credit_terms FROM service.customers WHERE id = $1', [location.customer_id]),
+    pool.query(
+      `SELECT COALESCE(SUM(amount - paid), 0)::numeric(12,2) AS balance
+       FROM service.invoice_history WHERE customer_id = $1 AND amount > paid`, [location.customer_id]),
+    pool.query('SELECT * FROM service.equipment WHERE location_id = $1 ORDER BY created_at', [locId]),
+    pool.query(
+      `SELECT id, type_code, plan_name, status, original_contract_date, expires_on,
+              visits_major_remaining, visits_minor_remaining
+       FROM service.agreements WHERE location_id = $1
+       ORDER BY status = 'active' DESC, expires_on DESC NULLS LAST LIMIT 10`, [locId]),
+    pool.query(
+      `SELECT id, esc_dispatch_no, type, received_date, completed_date, invoice_no, summary
+       FROM service.dispatch_history WHERE location_id = $1
+       ORDER BY received_date DESC NULLS LAST LIMIT 20`, [locId]),
+    pool.query(
+      `SELECT id, esc_invoice_no, inv_date, amount, paid, amount - paid AS balance
+       FROM service.invoice_history WHERE location_id = $1
+       ORDER BY inv_date DESC NULLS LAST LIMIT 10`, [locId]),
+    pool.query(
+      `SELECT qt.id, qt.number, qt.status, qt.summary, qt.created_at
+       FROM service.quotes qt WHERE qt.location_id = $1 ORDER BY qt.created_at DESC LIMIT 5`, [locId]),
+    pool.query(
+      `SELECT id, number, type, status, summary, created_at
+       FROM service.jobs WHERE location_id = $1 AND status NOT IN ('complete','invoiced','cancelled')
+       ORDER BY created_at DESC LIMIT 10`, [locId]),
+  ]);
+  res.json({
+    location,
+    customer: { ...customer.rows[0], balance: ar.rows[0].balance },
+    equipment: equipment.rows,
+    agreements: agreements.rows,
+    dispatch_history: history.rows,
+    invoice_history: invHistory.rows,
+    quotes: quotes.rows,
+    active_jobs: jobs.rows,
+  });
+});
+
 // Full detail of one historical ESC dispatch (the note text, expanded on click).
 router.get('/dispatch/:dispatchId', async (req, res) => {
   const row = (await pool.query(

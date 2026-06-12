@@ -49,9 +49,32 @@ interface Detail {
   ar: { balance: string; current: string; over30: string; over60: string; over90: string };
 }
 
+interface LocDetail {
+  location: LocationDetail & { state: string | null; zip: string | null; status: string };
+  customer: { id: string; name: string; esc_account_no: string | null; billing_address1: string | null;
+    billing_city: string | null; billing_state: string | null; billing_zip: string | null;
+    phones: Record<string, string>; email: string | null; credit_terms: string | null; balance: string };
+  equipment: { id: string; kind: string; manufacturer: string | null; model: string | null;
+    serial: string | null; kw: string | null; notes: string | null }[];
+  agreements: { id: string; type_code: string | null; plan_name: string | null; status: string;
+    original_contract_date: string | null; expires_on: string | null;
+    visits_major_remaining: number | null; visits_minor_remaining: number | null }[];
+  dispatch_history: { id: string; esc_dispatch_no: string; type: string; received_date: string | null;
+    completed_date: string | null; invoice_no: string | null; summary: string | null }[];
+  invoice_history: { id: string; esc_invoice_no: string; inv_date: string | null; amount: string;
+    paid: string; balance: string }[];
+  quotes: { id: string; number: number; status: string; summary: string | null; created_at: string }[];
+  active_jobs: { id: string; number: number; type: string; status: string; summary: string | null }[];
+}
+
 const money = (v: string | number) => `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
 
-function DispatchRow({ d }: { d: Detail['dispatch_history'][number] }) {
+interface DispatchRowData {
+  id: string; esc_dispatch_no: string; type: string; received_date: string | null;
+  invoice_no: string | null; summary: string | null; location_name?: string | null;
+}
+
+function DispatchRow({ d }: { d: DispatchRowData }) {
   const [open, setOpen] = useState(false);
   const [full, setFull] = useState<string | null>(null);
   async function toggle() {
@@ -126,9 +149,21 @@ export default function CustomerCenter() {
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedLoc, setSelectedLoc] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [locDetail, setLocDetail] = useState<LocDetail | null>(null);
   const [modal, setModal] = useState<'job' | 'edit' | 'location' | 'equipment' | 'customer' | null>(null);
   const navigate = useNavigate();
+
+  function selectRow(r: Row) {
+    setSelected(r.customer_id);
+    setSelectedLoc(r.location_id);
+  }
+
+  useEffect(() => {
+    if (!selectedLoc) return setLocDetail(null);
+    api<LocDetail>(`/api/customers/location/${selectedLoc}`).then(setLocDetail).catch(() => setLocDetail(null));
+  }, [selectedLoc]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -225,19 +260,24 @@ export default function CustomerCenter() {
               <tr><th>Full Name</th><th>Acct #</th><th>Location Name</th><th>Address</th><th>City</th></tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr
-                  key={`${r.customer_id}-${r.location_id}`}
-                  className={r.customer_id === selected ? 'selected' : ''}
-                  onClick={() => setSelected(r.customer_id)}
-                >
-                  <td>{r.customer_name}</td>
-                  <td className="muted">{r.esc_account_no}</td>
-                  <td>{r.location_name}</td>
-                  <td>{r.address1}</td>
-                  <td>{r.city}</td>
-                </tr>
-              ))}
+              {rows.map((r, i) => {
+                // ESC-style grouping: customer name shows on its first row only;
+                // following rows are that customer's locations.
+                const firstOfGroup = i === 0 || rows[i - 1].customer_id !== r.customer_id;
+                return (
+                  <tr
+                    key={`${r.customer_id}-${r.location_id}`}
+                    className={r.location_id === selectedLoc && r.customer_id === selected ? 'selected' : ''}
+                    onClick={() => selectRow(r)}
+                  >
+                    <td className={firstOfGroup ? '' : 'group-cont'}>{firstOfGroup ? r.customer_name : ''}</td>
+                    <td className="muted">{firstOfGroup ? r.esc_account_no : ''}</td>
+                    <td>{r.location_name}</td>
+                    <td>{r.address1}</td>
+                    <td>{r.city}</td>
+                  </tr>
+                );
+              })}
               {!rows.length && (
                 <tr><td colSpan={5}><div className="empty">No customers match.</div></td></tr>
               )}
@@ -279,6 +319,80 @@ export default function CustomerCenter() {
                 <button className="ghost" onClick={() => setModal('equipment')}>Add Equipment</button>
               </div>
 
+              {locDetail ? (
+                <>
+                  {/* ESC-style: the panel is about the SELECTED location */}
+                  <section>
+                    <h3>Location — {locDetail.location.name || locDetail.location.address1 || '—'}</h3>
+                    <LocationCard loc={{ ...locDetail.location, equipment: locDetail.equipment }} />
+                  </section>
+
+                  <section>
+                    <h3>Maintenance Schedule</h3>
+                    {locDetail.agreements.length === 0 && <div className="muted">No agreement at this location.</div>}
+                    {locDetail.agreements.map((a) => (
+                      <div key={a.id} style={{ marginBottom: 4 }}>
+                        <span className={`chip ${a.status}`}>{a.status}</span>{' '}
+                        <strong>{a.plan_name || a.type_code || 'Plan'}</strong>
+                        {a.expires_on && <> — expires {fmtDate(a.expires_on)}</>}
+                        {(a.visits_major_remaining != null || a.visits_minor_remaining != null) && (
+                          <span className="muted">
+                            {' '}({[a.visits_major_remaining != null ? `${a.visits_major_remaining} major` : '',
+                                   a.visits_minor_remaining != null ? `${a.visits_minor_remaining} minor` : '']
+                                  .filter(Boolean).join(' / ')} left)
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </section>
+
+                  {locDetail.active_jobs.length > 0 && (
+                    <section>
+                      <h3>Active Jobs</h3>
+                      {locDetail.active_jobs.map((j) => (
+                        <div key={j.id} style={{ marginBottom: 4 }}>
+                          <span className={`chip ${j.status}`}>{j.status}</span> #{j.number} {j.type} — {j.summary || '—'}
+                        </div>
+                      ))}
+                    </section>
+                  )}
+
+                  <section>
+                    <h3>Recent Dispatches</h3>
+                    {locDetail.dispatch_history.length === 0 && <div className="muted">No history at this location.</div>}
+                    {locDetail.dispatch_history.map((d) => <DispatchRow key={d.id} d={d} />)}
+                  </section>
+
+                  <section>
+                    <h3>Recent Invoices</h3>
+                    {locDetail.invoice_history.length === 0 && <div className="muted">None at this location.</div>}
+                    {locDetail.invoice_history.map((i) => (
+                      <div key={i.id} style={{ marginBottom: 4 }}>
+                        <span className={`chip ${Number(i.balance) <= 0 ? 'complete' : 'pending'}`}>
+                          {Number(i.balance) <= 0 ? 'paid' : 'open'}
+                        </span>{' '}
+                        #{i.esc_invoice_no} {money(i.amount)}
+                        {Number(i.balance) > 0 && <strong> (bal {money(i.balance)})</strong>}
+                        <span className="muted"> {fmtDate(i.inv_date)}</span>
+                      </div>
+                    ))}
+                  </section>
+
+                  {locDetail.quotes.length > 0 && (
+                    <section>
+                      <h3>Recent Quotes</h3>
+                      {locDetail.quotes.map((qt) => (
+                        <div key={qt.id} style={{ marginBottom: 4, cursor: 'pointer' }}
+                             onClick={() => navigate(`/quotes?open=${qt.id}`)}>
+                          <span className={`chip ${qt.status === 'accepted' ? 'complete' : 'pending'}`}>{qt.status}</span>{' '}
+                          #{qt.number} — {qt.summary || '—'} <span className="muted">{fmtDate(qt.created_at)}</span>
+                        </div>
+                      ))}
+                    </section>
+                  )}
+                </>
+              ) : (
+                <>
               <section>
                 <h3>Locations ({detail.locations.length})</h3>
                 {detail.locations.map((l) => <LocationCard key={l.id} loc={l} />)}
@@ -347,6 +461,8 @@ export default function CustomerCenter() {
                   </div>
                 ))}
               </section>
+                </>
+              )}
             </>
           )}
         </div>

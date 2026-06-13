@@ -243,3 +243,11 @@ dialog.modal .actions { display: flex; justify-content: flex-end; gap: 8px; marg
 .myday-card:hover { box-shadow: none; }
 button.big, a.big { padding: 10px 16px; font-size: 15px; border-radius: 8px; }
 .myday a { color: var(--navy); font-weight: 600; }
+.myday-details { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.myday-notes {
+  background: var(--bg); border-radius: 6px; padding: 8px 10px; margin-top: 8px;
+  font-size: 13px; max-height: 260px; overflow-y: auto;
+}
+.sig-pad canvas { border: 1px dashed var(--border2); border-radius: 8px; background: #fff; }
+.sig-pad { display: flex; flex-direction: column; gap: 8px; }
+.sig-done { color: var(--st-complete); font-weight: 600; }

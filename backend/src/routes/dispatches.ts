@@ -43,7 +43,7 @@ router.get('/mine', async (req: AuthRequest, res) => {
   const date = String(req.query.date || new Date().toISOString().slice(0, 10));
   const { rows } = await pool.query(
     `SELECT d.*, j.number AS job_number, j.type AS job_type, j.summary, j.priority,
-            c.name AS customer_name, l.name AS location_name,
+            c.name AS customer_name, l.id AS location_id, l.name AS location_name,
             l.address1, l.city, l.state, l.zip, l.access_notes, l.phones AS location_phones
      FROM service.dispatches d
      JOIN service.jobs j ON j.id = d.job_id

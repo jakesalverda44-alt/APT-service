@@ -23,13 +23,24 @@ function cardClass(d: Dispatch) {
 
 export default function DispatchBoard() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [mode, setMode] = useState<'day' | 'week'>('day');
   const [board, setBoard] = useState<Board | null>(null);
   const [scheduling, setScheduling] = useState<UnscheduledJob | null>(null);
   const [timeOff, setTimeOff] = useState(false);
 
+  // Week view starts on the Monday of the selected date's week.
+  const weekStart = (() => {
+    const d = new Date(date + 'T12:00:00');
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  })();
+
   const load = useCallback(() => {
-    api<Board>(`/api/dispatches/board?date=${date}`).then(setBoard).catch(() => setBoard(null));
-  }, [date]);
+    const url = mode === 'week'
+      ? `/api/dispatches/board?date=${weekStart}&days=7`
+      : `/api/dispatches/board?date=${date}`;
+    api<Board>(url).then(setBoard).catch(() => setBoard(null));
+  }, [date, mode, weekStart]);
   useEffect(load, [load]);
 
   async function advance(d: Dispatch) {
@@ -47,6 +58,29 @@ export default function DispatchBoard() {
     await api(`/api/dispatches/${dispatchId}`, { method: 'PATCH', body: JSON.stringify({ tech_id: techId }) });
     load();
   }
+
+  // Week view: drag a card onto another day to reschedule (same time, new date).
+  async function dropOnDay(e: React.DragEvent, day: string) {
+    e.preventDefault();
+    const dispatchId = e.dataTransfer.getData('dispatch');
+    if (!dispatchId || !board) return;
+    const card = board.dispatches.find((d) => d.id === dispatchId);
+    if (!card) return;
+    const time = card.scheduled_start.slice(11, 19) || '08:00:00';
+    await api(`/api/dispatches/${dispatchId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ scheduled_start: `${day}T${time}` }),
+    });
+    load();
+  }
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart + 'T12:00:00');
+    d.setDate(d.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+  const dayLabel = (day: string) =>
+    new Date(day + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
 
   // Block out non-customer time (vacation, shop) so the board shows availability.
   async function addTimeOff(e: React.FormEvent<HTMLFormElement>) {
@@ -106,6 +140,10 @@ export default function DispatchBoard() {
       <div className="toolbar">
         <h1>Dispatch Board</h1>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <select value={mode} onChange={(e) => setMode(e.target.value as 'day' | 'week')}>
+          <option value="day">Day</option>
+          <option value="week">Week</option>
+        </select>
         <button className="ghost" onClick={load}>Refresh</button>
         <button className="ghost" onClick={() => setTimeOff(true)}>Block Time Off</button>
         <span className="muted">
@@ -128,7 +166,28 @@ export default function DispatchBoard() {
             {board && board.unscheduled.length === 0 && <div className="empty">Nothing waiting.</div>}
           </div>
         </div>
-        {cols.map((c) => (
+        {mode === 'week' && weekDays.map((day) => (
+          <div key={day} className={`col${day === new Date().toISOString().slice(0, 10) ? ' today' : ''}`}
+               onDragOver={(e) => e.preventDefault()}
+               onDrop={(e) => dropOnDay(e, day)}>
+            <header>{dayLabel(day)}</header>
+            <div className="cards">
+              {(board?.dispatches || [])
+                .filter((d) => d.scheduled_start.slice(0, 10) === day)
+                .map((d) => (
+                  <div key={d.id} className={cardClass(d)} onClick={() => advance(d)}
+                       draggable
+                       onDragStart={(e) => e.dataTransfer.setData('dispatch', d.id)}
+                       title={`#${d.job_number} — click to advance, drag to another day to reschedule`}>
+                    <div className="when">{fmtTime(d.scheduled_start)} <span className="chip outline">{d.tech_name || 'unassigned'}</span></div>
+                    <div className="who">{d.job_type === 'internal' ? '⏸ Internal' : d.customer_name || '—'}</div>
+                    <div className="what">{d.location_name || d.city || ''}</div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        ))}
+        {mode === 'day' && cols.map((c) => (
           <div key={c.key} className="col"
                onDragOver={(e) => e.preventDefault()}
                onDrop={(e) => dropOnColumn(e, c.techId)}>

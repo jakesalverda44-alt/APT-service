@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db';
 import { requireAuth, requireOffice, AuthRequest } from '../auth';
+import { sendEmail, documentHtml } from '../email';
 
 const router = Router();
 router.use(requireAuth, requireOffice);
@@ -30,7 +31,7 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   const quote = (await pool.query(
-    `SELECT qt.*, c.name AS customer_name, c.esc_account_no,
+    `SELECT qt.*, c.name AS customer_name, c.esc_account_no, c.email AS customer_email,
             c.billing_address1, c.billing_city, c.billing_state, c.billing_zip,
             l.name AS location_name, l.address1 AS location_address, l.city AS location_city,
             l.state AS location_state, l.zip AS location_zip,
@@ -44,6 +45,45 @@ router.get('/:id', async (req, res) => {
   const lines = (await pool.query(
     'SELECT * FROM service.quote_lines WHERE quote_id = $1 ORDER BY created_at', [req.params.id])).rows;
   res.json({ ...quote, lines });
+});
+
+// Email the quote to the customer (pending -> sent on success).
+router.post('/:id/email', async (req, res) => {
+  const quote = (await pool.query(
+    `SELECT qt.*, c.name AS customer_name, c.email AS customer_email,
+            c.billing_address1, c.billing_city, c.billing_state, c.billing_zip,
+            l.name AS location_name, l.address1 AS location_address, l.city AS location_city
+     FROM service.quotes qt
+     JOIN service.customers c ON c.id = qt.customer_id
+     LEFT JOIN service.locations l ON l.id = qt.location_id
+     WHERE qt.id = $1`, [req.params.id])).rows[0];
+  if (!quote) return res.status(404).json({ error: 'Quote not found' });
+  const lines = (await pool.query(
+    'SELECT * FROM service.quote_lines WHERE quote_id = $1 ORDER BY created_at', [req.params.id])).rows;
+  const to = String(req.body?.to || quote.customer_email || '').trim();
+  if (!to) return res.status(400).json({ error: 'No email address — enter one or add it to the customer.' });
+  const subtotal = lines.reduce((s, l) => s + Number(l.qty) * Number(l.unit_price), 0);
+  try {
+    await sendEmail(to, `Quote #${quote.number} — Accurate Power & Technology`, documentHtml({
+      kind: 'Quote',
+      number: quote.number,
+      customerName: quote.customer_name,
+      billing: [quote.billing_address1, quote.billing_city, quote.billing_state, quote.billing_zip].filter(Boolean).join(', '),
+      serviceAt: [quote.location_name, quote.location_address, quote.location_city].filter(Boolean).join(', ') || null,
+      lines,
+      subtotal,
+      tax: Number(quote.tax),
+      total: subtotal + Number(quote.tax),
+      validUntil: quote.valid_until ? String(quote.valid_until).slice(0, 10) : null,
+      summary: quote.summary,
+    }));
+  } catch (err) {
+    return res.status(502).json({ error: (err as Error).message });
+  }
+  if (quote.status === 'pending') {
+    await pool.query(`UPDATE service.quotes SET status = 'sent' WHERE id = $1`, [req.params.id]);
+  }
+  res.json({ ok: true, to });
 });
 
 router.post('/', async (req: AuthRequest, res) => {

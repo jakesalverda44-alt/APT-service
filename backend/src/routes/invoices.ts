@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db';
 import { requireAuth, requireOffice } from '../auth';
+import { sendEmail, documentHtml } from '../email';
 
 const router = Router();
 router.use(requireAuth, requireOffice);
@@ -81,9 +82,9 @@ router.post('/from-job/:jobId', async (req, res) => {
   }
 });
 
-router.get('/:id', async (req, res) => {
+async function invoiceDetail(id: string) {
   const invoice = (await pool.query(
-    `SELECT i.*, c.name AS customer_name, c.esc_account_no,
+    `SELECT i.*, c.name AS customer_name, c.esc_account_no, c.email AS customer_email,
             c.billing_address1, c.billing_city, c.billing_state, c.billing_zip,
             l.name AS location_name, l.address1 AS location_address, l.city AS location_city,
             l.state AS location_state, l.zip AS location_zip,
@@ -94,13 +95,13 @@ router.get('/:id', async (req, res) => {
      LEFT JOIN service.locations l ON l.id = i.location_id
      LEFT JOIN service.jobs j ON j.id = i.job_id
      LEFT JOIN service.agreements a ON a.id = i.agreement_id
-     WHERE i.id = $1`, [req.params.id])).rows[0];
-  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+     WHERE i.id = $1`, [id])).rows[0];
+  if (!invoice) return null;
   const [lines, payments] = await Promise.all([
     invoice.job_id
       ? pool.query('SELECT * FROM service.job_lines WHERE job_id = $1 ORDER BY created_at', [invoice.job_id])
       : Promise.resolve({ rows: [] }),
-    pool.query('SELECT * FROM service.payments WHERE invoice_id = $1 ORDER BY received_on', [req.params.id]),
+    pool.query('SELECT * FROM service.payments WHERE invoice_id = $1 ORDER BY received_on', [id]),
   ]);
   // Agreement-renewal invoices have no job lines; show the renewal as a line.
   const displayLines = lines.rows.length === 0 && invoice.agreement_id
@@ -108,7 +109,42 @@ router.get('/:id', async (req, res) => {
          description: `Service agreement renewal — ${invoice.agreement_plan || invoice.agreement_type || 'maintenance plan'}`,
          qty: '1', unit_price: invoice.subtotal }]
     : lines.rows;
-  res.json({ ...invoice, lines: displayLines, payments: payments.rows });
+  return { ...invoice, lines: displayLines, payments: payments.rows };
+}
+
+router.get('/:id', async (req, res) => {
+  const invoice = await invoiceDetail(req.params.id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  res.json(invoice);
+});
+
+// Email the invoice to the customer (draft -> sent on success).
+router.post('/:id/email', async (req, res) => {
+  const invoice = await invoiceDetail(req.params.id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  const to = String(req.body?.to || invoice.customer_email || '').trim();
+  if (!to) return res.status(400).json({ error: 'No email address — enter one or add it to the customer.' });
+  try {
+    await sendEmail(to, `Invoice #${invoice.number} — Accurate Power & Technology`, documentHtml({
+      kind: 'Invoice',
+      number: invoice.number,
+      customerName: invoice.customer_name,
+      billing: [invoice.billing_address1, invoice.billing_city, invoice.billing_state, invoice.billing_zip].filter(Boolean).join(', '),
+      serviceAt: [invoice.location_name, invoice.location_address, invoice.location_city].filter(Boolean).join(', ') || null,
+      lines: invoice.lines,
+      subtotal: Number(invoice.subtotal),
+      tax: Number(invoice.tax),
+      total: Number(invoice.total),
+      terms: invoice.terms,
+      summary: invoice.job_summary,
+    }));
+  } catch (err) {
+    return res.status(502).json({ error: (err as Error).message });
+  }
+  if (invoice.status === 'draft') {
+    await pool.query(`UPDATE service.invoices SET status = 'sent' WHERE id = $1`, [req.params.id]);
+  }
+  res.json({ ok: true, to });
 });
 
 router.patch('/:id', async (req, res) => {

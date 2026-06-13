@@ -5,10 +5,11 @@ import { requireAuth, AuthRequest } from '../auth';
 const router = Router();
 router.use(requireAuth);
 
-// Board data for one day: tech columns + that day's dispatches + unscheduled
-// pending jobs (the "to be scheduled" tray).
+// Board data: tech columns + dispatches for the date (or a multi-day window
+// for the week view) + unscheduled pending jobs (the "to be scheduled" tray).
 router.get('/board', async (req, res) => {
   const date = String(req.query.date || new Date().toISOString().slice(0, 10));
+  const days = Math.min(Math.max(Number(req.query.days) || 1, 1), 14);
   const [techs, dispatches, unscheduled] = await Promise.all([
     pool.query(
       `SELECT id, name, role FROM public.users
@@ -22,8 +23,10 @@ router.get('/board', async (req, res) => {
        LEFT JOIN public.users u ON u.id = d.tech_id
        LEFT JOIN service.customers c ON c.id = j.customer_id
        LEFT JOIN service.locations l ON l.id = j.location_id
-       WHERE d.scheduled_start::date = $1::date AND d.status != 'cancelled'
-       ORDER BY d.scheduled_start`, [date]),
+       WHERE d.scheduled_start::date >= $1::date
+         AND d.scheduled_start::date < $1::date + $2::int
+         AND d.status != 'cancelled'
+       ORDER BY d.scheduled_start`, [date, days]),
     pool.query(
       `SELECT j.id, j.number, j.type, j.priority, j.summary,
               c.name AS customer_name, l.name AS location_name, l.city

@@ -9,7 +9,7 @@ interface InvoiceRow {
 }
 interface InvoiceDetail extends InvoiceRow {
   subtotal: string; tax: string; customer_po: string | null;
-  esc_account_no: string | null;
+  esc_account_no: string | null; customer_email: string | null;
   billing_address1: string | null; billing_city: string | null; billing_state: string | null; billing_zip: string | null;
   location_address: string | null; location_city: string | null; location_state: string | null; location_zip: string | null;
   job_summary: string | null;
@@ -61,6 +61,19 @@ export default function Invoices() {
   function select(id: string) {
     setSelected(id);
     setParams(id ? { open: id } : {});
+  }
+
+  async function emailDoc() {
+    if (!detail) return;
+    const to = window.prompt('Email this invoice to:', detail.customer_email || '');
+    if (!to) return;
+    try {
+      await api(`/api/invoices/${detail.id}/email`, { method: 'POST', body: JSON.stringify({ to }) });
+      alert(`Invoice emailed to ${to}`);
+      loadDetail(); load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Send failed');
+    }
   }
 
   const money = (v: string | number) => `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
@@ -166,7 +179,8 @@ export default function Invoices() {
               </section>
 
               <div className="no-print" style={{ marginTop: 12, display: 'flex', gap: 6 }}>
-                {detail.status === 'draft' && <button className="primary" onClick={() => patch({ status: 'sent' })}>Mark Sent</button>}
+                {detail.status !== 'void' && <button className="primary" onClick={emailDoc}>Email Invoice</button>}
+                {detail.status === 'draft' && <button className="ghost" onClick={() => patch({ status: 'sent' })}>Mark Sent</button>}
                 <button className="ghost" onClick={() => window.print()}>Print</button>
                 {detail.status !== 'void' && <button className="ghost" onClick={() => confirm('Void this invoice?') && patch({ status: 'void' })}>Void</button>}
               </div>

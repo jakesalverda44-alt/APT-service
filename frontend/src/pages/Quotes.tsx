@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, fmtDate } from '../api';
+import LineForm from '../components/LineForm';
 
 interface QuoteRow {
   id: string; number: number; status: string; summary: string | null;
@@ -9,7 +10,7 @@ interface QuoteRow {
 }
 interface QuoteDetail extends QuoteRow {
   tax: string; notes: string | null; job_number: number | null;
-  esc_account_no: string | null;
+  esc_account_no: string | null; customer_email: string | null;
   billing_address1: string | null; billing_city: string | null; billing_state: string | null; billing_zip: string | null;
   location_address: string | null; location_city: string | null;
   lines: { id: string; kind: string; description: string; qty: string; unit_price: string }[];
@@ -72,19 +73,23 @@ export default function Quotes() {
     load();
   }
 
-  async function addLine(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function addLine(line: { kind: string; description: string; qty: number; unit_price: number }) {
     if (!detail) return;
-    const f = new FormData(e.currentTarget);
-    await api(`/api/quotes/${detail.id}/lines`, {
-      method: 'POST',
-      body: JSON.stringify({
-        kind: f.get('kind'), description: f.get('description'),
-        qty: Number(f.get('qty')) || 1, unit_price: Number(f.get('unit_price')) || 0,
-      }),
-    });
-    e.currentTarget?.reset?.();
+    await api(`/api/quotes/${detail.id}/lines`, { method: 'POST', body: JSON.stringify(line) });
     loadDetail(); load();
+  }
+
+  async function emailDoc() {
+    if (!detail) return;
+    const to = window.prompt('Email this quote to:', emailDefault);
+    if (!to) return;
+    try {
+      await api(`/api/quotes/${detail.id}/email`, { method: 'POST', body: JSON.stringify({ to }) });
+      alert(`Quote emailed to ${to}`);
+      loadDetail(); load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Send failed');
+    }
   }
 
   async function removeLine(lineId: string) {
@@ -106,6 +111,7 @@ export default function Quotes() {
 
   const editable = detail && (detail.status === 'pending' || detail.status === 'sent');
   const subtotal = detail ? detail.lines.reduce((s, l) => s + Number(l.qty) * Number(l.unit_price), 0) : 0;
+  const emailDefault = detail?.customer_email || '';
 
   return (
     <div className="page">
@@ -187,22 +193,11 @@ export default function Quotes() {
                   </div>
                   <div className="grand"><span>Total</span><span>{money(subtotal + Number(detail.tax))}</span></div>
                 </div>
-                {editable && (
-                  <form onSubmit={addLine} className="no-print" style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                    <select name="kind" style={{ width: 80 }}>
-                      <option value="labor">labor</option>
-                      <option value="part">part</option>
-                      <option value="flat">flat</option>
-                    </select>
-                    <input name="description" placeholder="Description" required style={{ flex: 1 }} />
-                    <input name="qty" type="number" step="0.25" defaultValue={1} style={{ width: 60 }} />
-                    <input name="unit_price" type="number" step="0.01" placeholder="$" style={{ width: 80 }} />
-                    <button className="ghost">Add</button>
-                  </form>
-                )}
+                {editable && <div className="no-print"><LineForm onAdd={addLine} /></div>}
               </section>
 
               <div className="no-print" style={{ marginTop: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {editable && <button className="ghost" onClick={emailDoc}>Email Quote</button>}
                 {detail.status === 'pending' && <button className="ghost" onClick={() => patch({ status: 'sent' })}>Mark Sent</button>}
                 {editable && <button className="primary" onClick={accept}>Accept → Job</button>}
                 {editable && <button className="ghost" onClick={() => patch({ status: 'declined' })}>Declined</button>}

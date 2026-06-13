@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, fmtDate, fmtTime } from '../api';
+import LineForm from '../components/LineForm';
 
 interface JobRow {
   id: string; number: number; type: string; priority: string; status: string;
@@ -51,18 +52,9 @@ export default function Jobs() {
     refreshDetail();
   }
 
-  async function addLine(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function addLine(line: { kind: string; description: string; qty: number; unit_price: number }) {
     if (!detail) return;
-    const f = new FormData(e.currentTarget);
-    await api(`/api/jobs/${detail.id}/lines`, {
-      method: 'POST',
-      body: JSON.stringify({
-        kind: f.get('kind'), description: f.get('description'),
-        qty: Number(f.get('qty')) || 1, unit_price: Number(f.get('unit_price')) || 0,
-      }),
-    });
-    e.currentTarget?.reset?.();
+    await api(`/api/jobs/${detail.id}/lines`, { method: 'POST', body: JSON.stringify(line) });
     refreshDetail();
   }
 
@@ -175,19 +167,7 @@ export default function Jobs() {
                     Subtotal: ${detail.lines.reduce((s, l) => s + Number(l.qty) * Number(l.unit_price), 0).toFixed(2)}
                   </div>
                 )}
-                {detail.status !== 'invoiced' && (
-                  <form onSubmit={addLine} style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                    <select name="kind" style={{ width: 80 }}>
-                      <option value="labor">labor</option>
-                      <option value="part">part</option>
-                      <option value="flat">flat</option>
-                    </select>
-                    <input name="description" placeholder="Description" required style={{ flex: 1 }} />
-                    <input name="qty" type="number" step="0.25" placeholder="Qty" defaultValue={1} style={{ width: 60 }} />
-                    <input name="unit_price" type="number" step="0.01" placeholder="$" style={{ width: 80 }} />
-                    <button className="ghost">Add</button>
-                  </form>
-                )}
+                {detail.status !== 'invoiced' && <LineForm onAdd={addLine} />}
               </section>
 
               <section>

@@ -11,6 +11,8 @@ import intakeRoutes from './routes/intake';
 import importRoutes from './routes/import';
 import invoiceRoutes from './routes/invoices';
 import quoteRoutes from './routes/quotes';
+import pricebookRoutes from './routes/pricebook';
+import reportRoutes from './routes/reports';
 
 dotenv.config();
 
@@ -28,6 +30,8 @@ app.use('/api/intake', intakeRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/quotes', quoteRoutes);
+app.use('/api/pricebook', pricebookRoutes);
+app.use('/api/reports', reportRoutes);
 
 // In production the built frontend is served from the same process.
 const frontendDist = path.join(__dirname, '../../frontend/dist');

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, fmtDate, fmtTime } from '../api';
 import SignaturePad from '../components/SignaturePad';
+import LineForm from '../components/LineForm';
 
 interface MyDispatch {
   id: string; job_id: string; status: string; scheduled_start: string;
@@ -53,17 +54,8 @@ export default function MyDay() {
     }
   }
 
-  async function addLine(e: React.FormEvent<HTMLFormElement>, jobId: string) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    await api(`/api/jobs/${jobId}/lines`, {
-      method: 'POST',
-      body: JSON.stringify({
-        kind: f.get('kind'), description: f.get('description'),
-        qty: Number(f.get('qty')) || 1, unit_price: Number(f.get('unit_price')) || 0,
-      }),
-    });
-    e.currentTarget?.reset?.();
+  async function addLine(jobId: string, line: { kind: string; description: string; qty: number; unit_price: number }) {
+    await api(`/api/jobs/${jobId}/lines`, { method: 'POST', body: JSON.stringify(line) });
     api<JobInfo>(`/api/jobs/${jobId}`).then(setJobInfo);
   }
 
@@ -163,16 +155,7 @@ export default function MyDay() {
                     {l.description} — {Number(l.qty)} × ${Number(l.unit_price).toFixed(2)}
                   </div>
                 ))}
-                <form onSubmit={(e) => addLine(e, d.job_id)} style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
-                  <select name="kind" style={{ width: 76 }}>
-                    <option value="part">part</option>
-                    <option value="labor">labor</option>
-                  </select>
-                  <input name="description" placeholder="What was used / done" required style={{ flex: 1, minWidth: 140 }} />
-                  <input name="qty" type="number" step="0.25" defaultValue={1} style={{ width: 56 }} />
-                  <input name="unit_price" type="number" step="0.01" placeholder="$" style={{ width: 72 }} />
-                  <button className="ghost">Add</button>
-                </form>
+                <LineForm compact onAdd={(line) => addLine(d.job_id, line)} />
               </div>
 
               <div style={{ marginTop: 10 }}>

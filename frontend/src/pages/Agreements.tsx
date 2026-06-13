@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 
 interface AgreementRow {
   id: string; esc_agreement_no: string | null; type_code: string | null; plan_name: string | null;
-  status: string; original_contract_date: string | null; last_renewal_date: string | null;
+  status: string; price: string | null; original_contract_date: string | null; last_renewal_date: string | null;
   expires_on: string | null; visits_major_remaining: number | null; visits_minor_remaining: number | null;
-  customer_name: string; esc_account_no: string | null; location_name: string | null; address1: string | null;
+  customer_name: string; esc_account_no: string | null; customer_phones: Record<string, string> | null;
+  location_name: string | null; address1: string | null;
 }
 interface Task {
   id: string; name: string; kind: string; interval_months: number | null;
@@ -26,17 +28,20 @@ const MAJOR_CHECKLIST = [
 
 export default function Agreements() {
   const [q, setQ] = useState('');
+  const [view, setView] = useState('all');
   const [rows, setRows] = useState<AgreementRow[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<AgreementDetail | null>(null);
   const [creating, setCreating] = useState(false);
+  const [renewing, setRenewing] = useState(false);
   const [custQuery, setCustQuery] = useState('');
   const [custHits, setCustHits] = useState<CustomerHit[]>([]);
   const [pmMsg, setPmMsg] = useState('');
+  const navigate = useNavigate();
 
   const load = useCallback(() => {
-    api<AgreementRow[]>(`/api/agreements?q=${encodeURIComponent(q)}`).then(setRows).catch(() => setRows([]));
-  }, [q]);
+    api<AgreementRow[]>(`/api/agreements?q=${encodeURIComponent(q)}&view=${view}`).then(setRows).catch(() => setRows([]));
+  }, [q, view]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
 
   const loadDetail = useCallback(() => {
@@ -101,13 +106,21 @@ export default function Agreements() {
     load();
   }
 
-  async function renew() {
+  async function submitRenew(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
     if (!detail) return;
-    const expires = prompt('New expiration date (YYYY-MM-DD):',
-      new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10));
-    if (!expires) return;
-    await api(`/api/agreements/${detail.id}/renew`, { method: 'POST', body: JSON.stringify({ expires_on: expires }) });
+    const f = new FormData(e.currentTarget);
+    const result = await api<{ invoice_id: string | null }>(`/api/agreements/${detail.id}/renew`, {
+      method: 'POST',
+      body: JSON.stringify({
+        expires_on: f.get('expires_on'),
+        price: Number(f.get('price')) || null,
+        create_invoice: f.get('create_invoice') === 'on',
+      }),
+    });
+    setRenewing(false);
     loadDetail(); load();
+    if (result.invoice_id) navigate(`/invoices?open=${result.invoice_id}`);
   }
 
   async function runScheduler() {
@@ -122,6 +135,12 @@ export default function Agreements() {
         <h1>Agreement List</h1>
         <input type="search" placeholder="Search customer, agreement #, type…"
                value={q} onChange={(e) => setQ(e.target.value)} />
+        <select value={view} onChange={(e) => setView(e.target.value)}>
+          <option value="all">All agreements</option>
+          <option value="active">Active</option>
+          <option value="expiring">Renewals due (60 days)</option>
+          <option value="expired">Expired</option>
+        </select>
         <button className="primary" onClick={() => setCreating(true)}>New Agreement</button>
         <button className="ghost" onClick={runScheduler}>Generate PM jobs</button>
         <span className="muted">{pmMsg || `${rows.length} agreements`}</span>
@@ -131,8 +150,11 @@ export default function Agreements() {
           <table className="grid">
             <thead>
               <tr>
-                <th>Customer</th><th>Type</th><th>Status</th><th>Original</th>
-                <th>Expires</th><th>Visits Left</th><th>Location</th>
+                <th>Customer</th><th>Type</th><th>Status</th>
+                {view === 'expiring' ? <th>Phone</th> : <th>Original</th>}
+                <th>Expires</th>
+                {view === 'expiring' ? <th>Price</th> : <th>Visits Left</th>}
+                <th>Location</th>
               </tr>
             </thead>
             <tbody>
@@ -141,13 +163,17 @@ export default function Agreements() {
                   <td>{a.customer_name} <span className="muted">{a.esc_account_no}</span></td>
                   <td><span className="chip gold">{a.type_code || a.plan_name || '—'}</span></td>
                   <td><span className={`chip ${a.status}`}>{a.status}</span></td>
-                  <td>{fmtDate(a.original_contract_date)}</td>
+                  {view === 'expiring'
+                    ? <td>{Object.values(a.customer_phones || {})[0] || '—'}</td>
+                    : <td>{fmtDate(a.original_contract_date)}</td>}
                   <td>{fmtDate(a.expires_on)}</td>
-                  <td>
-                    {a.visits_major_remaining != null && `${a.visits_major_remaining} major`}
-                    {a.visits_major_remaining != null && a.visits_minor_remaining != null && ' / '}
-                    {a.visits_minor_remaining != null && `${a.visits_minor_remaining} minor`}
-                  </td>
+                  {view === 'expiring'
+                    ? <td>{a.price ? `$${Number(a.price).toLocaleString()}` : '—'}</td>
+                    : <td>
+                        {a.visits_major_remaining != null && `${a.visits_major_remaining} major`}
+                        {a.visits_major_remaining != null && a.visits_minor_remaining != null && ' / '}
+                        {a.visits_minor_remaining != null && `${a.visits_minor_remaining} minor`}
+                      </td>}
                   <td>{a.location_name || a.address1}</td>
                 </tr>
               ))}
@@ -179,7 +205,7 @@ export default function Agreements() {
                 <span>{detail.visits_minor_remaining ?? '—'} of {detail.visits_minor_total ?? '—'} remaining</span>
               </div>
               <div style={{ marginTop: 10 }}>
-                <button className="ghost" onClick={renew}>Renew…</button>
+                <button className="primary" onClick={() => setRenewing(true)}>Renew…</button>
               </div>
 
               <section>
@@ -210,6 +236,33 @@ export default function Agreements() {
           )}
         </div>
       </div>
+
+      {renewing && detail && (
+        <dialog className="modal" open>
+          <h2>Renew — {detail.plan_name || detail.type_code} for {detail.customer_name}</h2>
+          <form onSubmit={submitRenew}>
+            <label className="muted">New expiration
+              <input name="expires_on" type="date" required
+                     defaultValue={new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10)} />
+            </label>
+            <label className="muted">Price $
+              <input name="price" type="number" step="0.01"
+                     defaultValue={detail.price ? Number(detail.price) : undefined} />
+            </label>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="checkbox" name="create_invoice" defaultChecked style={{ width: 'auto' }} />
+              Create the renewal invoice now
+            </label>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Renewing resets the visit counters and reactivates PM scheduling.
+            </div>
+            <div className="actions">
+              <button type="button" className="ghost" onClick={() => setRenewing(false)}>Cancel</button>
+              <button className="primary">Renew</button>
+            </div>
+          </form>
+        </dialog>
+      )}
 
       {creating && (
         <dialog className="modal" open>

@@ -87,11 +87,13 @@ router.get('/:id', async (req, res) => {
             c.billing_address1, c.billing_city, c.billing_state, c.billing_zip,
             l.name AS location_name, l.address1 AS location_address, l.city AS location_city,
             l.state AS location_state, l.zip AS location_zip,
-            j.number AS job_number, j.summary AS job_summary
+            j.number AS job_number, j.summary AS job_summary,
+            a.plan_name AS agreement_plan, a.type_code AS agreement_type
      FROM service.invoices i
      JOIN service.customers c ON c.id = i.customer_id
      LEFT JOIN service.locations l ON l.id = i.location_id
      LEFT JOIN service.jobs j ON j.id = i.job_id
+     LEFT JOIN service.agreements a ON a.id = i.agreement_id
      WHERE i.id = $1`, [req.params.id])).rows[0];
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
   const [lines, payments] = await Promise.all([
@@ -100,7 +102,13 @@ router.get('/:id', async (req, res) => {
       : Promise.resolve({ rows: [] }),
     pool.query('SELECT * FROM service.payments WHERE invoice_id = $1 ORDER BY received_on', [req.params.id]),
   ]);
-  res.json({ ...invoice, lines: lines.rows, payments: payments.rows });
+  // Agreement-renewal invoices have no job lines; show the renewal as a line.
+  const displayLines = lines.rows.length === 0 && invoice.agreement_id
+    ? [{ id: 'renewal', kind: 'flat',
+         description: `Service agreement renewal — ${invoice.agreement_plan || invoice.agreement_type || 'maintenance plan'}`,
+         qty: '1', unit_price: invoice.subtotal }]
+    : lines.rows;
+  res.json({ ...invoice, lines: displayLines, payments: payments.rows });
 });
 
 router.patch('/:id', async (req, res) => {

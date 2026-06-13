@@ -14,24 +14,38 @@ const AGREEMENT_FIELDS = [
 ] as const;
 
 // Agreement List grid (ESC columns: customer, agreement #, type, dates, location).
+// view=expiring&days=60 -> the renewal call list: active agreements expiring in
+// the window (or already lapsed but not cancelled), soonest first, with phones.
 router.get('/', async (req, res) => {
   const q = String(req.query.q || '').trim();
+  const view = String(req.query.view || 'all');     // all | active | expiring | expired
+  const days = Math.min(Number(req.query.days) || 60, 365);
   const params: unknown[] = [];
-  let where = '';
+  const conds: string[] = [];
   if (q) {
     params.push(`%${q}%`);
-    where = `WHERE c.name ILIKE $1 OR a.esc_agreement_no LIKE $1 OR a.type_code ILIKE $1 OR l.name ILIKE $1`;
+    conds.push(`(c.name ILIKE $${params.length} OR a.esc_agreement_no LIKE $${params.length}
+                 OR a.type_code ILIKE $${params.length} OR l.name ILIKE $${params.length})`);
   }
+  if (view === 'active') conds.push(`a.status = 'active'`);
+  if (view === 'expired') conds.push(`a.status = 'expired'`);
+  if (view === 'expiring') {
+    params.push(days);
+    conds.push(`a.status = 'active' AND a.expires_on IS NOT NULL
+                AND a.expires_on <= CURRENT_DATE + $${params.length}::int`);
+  }
+  const order = view === 'expiring' ? 'a.expires_on ASC' : 'c.name';
   const { rows } = await pool.query(
-    `SELECT a.id, a.esc_agreement_no, a.type_code, a.plan_name, a.status,
+    `SELECT a.id, a.esc_agreement_no, a.type_code, a.plan_name, a.status, a.price,
             a.original_contract_date, a.last_renewal_date, a.expires_on,
             a.visits_major_remaining, a.visits_minor_remaining,
-            c.name AS customer_name, c.esc_account_no, l.name AS location_name, l.address1
+            c.name AS customer_name, c.esc_account_no, c.phones AS customer_phones,
+            l.name AS location_name, l.address1
      FROM service.agreements a
      JOIN service.customers c ON c.id = a.customer_id
      LEFT JOIN service.locations l ON l.id = a.location_id
-     ${where}
-     ORDER BY c.name LIMIT 300`, params);
+     ${conds.length ? 'WHERE ' + conds.join(' AND ') : ''}
+     ORDER BY ${order} LIMIT 300`, params);
   res.json(rows);
 });
 
@@ -90,21 +104,49 @@ router.patch('/:id', requireOffice, async (req, res) => {
 });
 
 // Renew: stamp the renewal date, set the new expiration, refill visit counters.
+// create_invoice=true also raises the renewal invoice at the agreement price.
 router.post('/:id/renew', requireOffice, async (req, res) => {
-  const { expires_on, price } = req.body || {};
+  const { expires_on, price, create_invoice } = req.body || {};
   if (!expires_on) return res.status(400).json({ error: 'expires_on required' });
-  const { rows } = await pool.query(
-    `UPDATE service.agreements SET
-       last_renewal_date = CURRENT_DATE,
-       expires_on = $2,
-       price = COALESCE($3, price),
-       status = 'active',
-       visits_major_remaining = visits_major_total,
-       visits_minor_remaining = visits_minor_total
-     WHERE id = $1 RETURNING *`,
-    [req.params.id, expires_on, price ?? null]);
-  if (!rows[0]) return res.status(404).json({ error: 'Agreement not found' });
-  res.json(rows[0]);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const agreement = (await client.query(
+      `UPDATE service.agreements SET
+         last_renewal_date = CURRENT_DATE,
+         expires_on = $2,
+         price = COALESCE($3::numeric, price),
+         status = 'active',
+         visits_major_remaining = visits_major_total,
+         visits_minor_remaining = visits_minor_total
+       WHERE id = $1 RETURNING *`,
+      [req.params.id, expires_on, price ?? null])).rows[0];
+    if (!agreement) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Agreement not found' });
+    }
+    let invoiceId: string | null = null;
+    if (create_invoice) {
+      const amount = Number(agreement.price) || 0;
+      const terms = (await client.query(
+        'SELECT credit_terms FROM service.customers WHERE id = $1',
+        [agreement.customer_id])).rows[0]?.credit_terms || 'DUE ON RECEIPT';
+      invoiceId = (await client.query(
+        `INSERT INTO service.invoices
+           (customer_id, location_id, agreement_id, status, terms,
+            subtotal, tax, total, balance_due, issued_on, due_on)
+         VALUES ($1,$2,$3,'draft',$4,$5,0,$5,$5,CURRENT_DATE,CURRENT_DATE)
+         RETURNING id`,
+        [agreement.customer_id, agreement.location_id, agreement.id, terms, amount])).rows[0].id;
+    }
+    await client.query('COMMIT');
+    res.json({ ...agreement, invoice_id: invoiceId });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
 router.post('/:id/tasks', requireOffice, async (req, res) => {
